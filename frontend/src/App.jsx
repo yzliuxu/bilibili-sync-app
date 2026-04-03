@@ -71,11 +71,57 @@ function App() {
     }
   };
 
+// ==========================================
+  // 【新增核心逻辑】：提取 Cookie 并格式化为 rclone 节点配置
+  // ==========================================
+  const formatRcloneConfig = (rawCookie) => {
+    // 提取指定 key 的值的正则小工具
+    const extract = (key) => {
+      const match = rawCookie.match(new RegExp(`(?:^|;\\s*)${key}=([^;]*)`));
+      return match ? match[1] : '';
+    };
+
+    const uid = extract('uid');
+    const cid = extract('cid');
+    const seid = extract('seid');
+    const kid = extract('kid');
+
+    // 如果一个关键字段都没提取到，说明用户填的可能不是完整的 Cookie 或者格式不对
+    if (!uid && !cid && !seid && !kid) {
+      return null;
+    }
+
+    // 拼装成标准的 rclone config 格式
+    return `[115]\ntype = 115\nuid = ${uid}\ncid = ${cid}\nseid = ${seid}\nkid = ${kid}`;
+  };
+
   const handleSaveSettings = async () => {
     try {
-      if (ytCookie) await api.post('/api/settings', { key: 'yt_cookie', value: ytCookie });
-      if (rcloneCookie) await api.post('/api/settings', { key: 'rclone_cookie', value: rcloneCookie });
-      alert("配置已成功保存！");
+      // 1. 保存 yt-dlp cookie
+      if (ytCookie) {
+        await api.post('/api/settings', { key: 'yt_cookie', value: ytCookie });
+      }
+
+      // 2. 提取并保存 rclone cookie
+      if (rcloneCookie) {
+        // 判断用户是不是已经填了格式化好的配置（防止二次提取失败）
+        let finalConfig = rcloneCookie;
+        
+        if (!rcloneCookie.startsWith('[115]')) {
+          const parsedConfig = formatRcloneConfig(rcloneCookie);
+          if (!parsedConfig) {
+            alert("提取失败：未在您填写的文本中找到 uid, cid, seid 或 kid。请确认填写的是完整的 115 Cookie 字符串！");
+            return;
+          }
+          finalConfig = parsedConfig;
+          // 将输入框的内容也替换成格式化后的，让用户能直观看到结果
+          setRcloneCookie(finalConfig); 
+        }
+
+        await api.post('/api/settings', { key: 'rclone_cookie', value: finalConfig });
+      }
+      
+      alert("配置已成功解析并保存！");
     } catch (error) {
       alert("保存失败");
     }
@@ -136,27 +182,14 @@ function App() {
 
       <main>
         {activeTab === 'tasks' && (
-          <div className="space-y-6">
+<div className="space-y-6">
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-              <h2 className="text-lg font-semibold mb-4 text-gray-700">添加新下载任务 (支持播放列表)</h2>
+              <h2 className="text-lg font-semibold mb-4 text-gray-700">添加新下载任务</h2>
               <div className="flex space-x-2">
-                <input 
-                  type="text" 
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  placeholder="在此粘贴 YouTube/Bilibili 等视频或播放列表链接..." 
-                  className="flex-1 border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddTask()}
-                />
-                <button 
-                  onClick={handleAddTask} 
-                  className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap"
-                >
-                  解析并下载
-                </button>
+                <input type="text" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder="粘贴视频链接..." className="flex-1 border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none" onKeyDown={(e) => e.key === 'Enter' && handleAddTask()} />
+                <button onClick={handleAddTask} className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700">解析并下载</button>
               </div>
             </div>
-
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
               <h2 className="text-lg font-semibold mb-4 text-gray-700">当前任务队列</h2>
               <TaskList tasks={tasks} onRetry={handleRetry} />
@@ -178,16 +211,16 @@ function App() {
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">rclone 115 网盘 Cookie</label>
               <textarea 
-                rows="3" value={rcloneCookie} onChange={(e) => setRcloneCookie(e.target.value)}
+                rows="6" value={rcloneCookie} onChange={(e) => setRcloneCookie(e.target.value)}
                 className="w-full border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                placeholder="在此粘贴 115 网盘的 Cookie 字符串..."
+                placeholder="直接在此粘贴浏览器中抓取到的一整段乱七八糟的 Cookie，系统会自动提取 uid, cid, seid, kid 并生成节点配置..."
               ></textarea>
             </div>
             <button 
               onClick={handleSaveSettings}
               className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 transition-colors shadow-sm"
             >
-              保存配置
+              提取并保存配置
             </button>
           </div>
         )}

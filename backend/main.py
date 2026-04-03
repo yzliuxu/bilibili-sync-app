@@ -98,4 +98,4 @@ def update_setting(setting_in: schemas.SettingUpdate, db: Session = Depends(get_
     if setting_in.key == "yt_cookie":
         with open("data/yt_cookies.txt", "w") as f:
             f.write(setting_in.value)
-    return {"message": "配置已更新"}
+    return {"message": "yt-dlp配置已更新"}
