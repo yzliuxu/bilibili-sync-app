@@ -21,7 +21,7 @@ def verify_api_key(api_key: str = Security(api_key_header)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效的 API Key")
 # ============================================
 
-app = FastAPI(title="Video Sync API", dependencies=[Depends(verify_api_key)])
+app = FastAPI(title="Bilibili Sync API", dependencies=[Depends(verify_api_key)])
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,12 +37,12 @@ def verify_token():
 
 @app.get("/api/tasks", response_model=List[schemas.TaskResponse])
 def get_tasks(db: Session = Depends(get_db)):
-    """获取所有任务列表 (需求 3: 显示哪些视频失败)"""
+    """获取所有任务列表"""
     return db.query(models.Task).order_by(models.Task.created_at.desc()).all()
 
 @app.post("/api/tasks", response_model=schemas.TaskResponse)
 def create_task(task_in: schemas.TaskCreate, db: Session = Depends(get_db)):
-    """添加新任务 (需求 1 & 7: 支持解析链接并查重)"""
+    """添加新任务"""
     # 检查是否已经存在相同 URL 的任务
     existing_task = db.query(models.Task).filter(models.Task.url == task_in.url).first()
     if existing_task:
@@ -75,7 +75,7 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
         db.commit()
     return {"message": "记录已删除"}
 
-# --- 2. 系统配置接口 (需求 6: 更新 Cookie) ---
+# --- 2. 系统配置接口 ---
 
 @app.get("/api/settings")
 def get_all_settings(db: Session = Depends(get_db)):
