@@ -1,0 +1,36 @@
+# ========================
+# 后端 (Python) 忽略清单
+# ========================
+backend/venv/
+backend/env/
+
+# Python 编译缓存
+backend/__pycache__/
+*.pyc
+
+# 数据库与临时下载文件 (保护你的隐私和网盘数据)
+backend/data/*.db
+backend/data/temp_downloads/
+backend/data/yt_cookies.txt
+
+# ========================
+# 前端 (Node/React) 忽略清单
+# ========================
+# 依赖包 (绝对不能传，几百MB)
+frontend/node_modules/
+
+# 编译后的打包文件
+frontend/dist/
+frontend/build/
+
+# 日志文件
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ========================
+# 环境变量与系统文件
+# ========================
+.env
+.env.local
+.DS_Store
