@@ -1,11 +1,12 @@
 import axios from 'axios';
+import APP_CONFIG from '../config';
 
 const api = axios.create({
-  baseURL: 'http://localhost:8000', // PVE虚拟机的实际IP如果在公网，请修改这里
+  baseURL: APP_CONFIG.API_BASE_URL,
 });
 
 api.interceptors.request.use((config) => {
-  const apiKey = localStorage.getItem('video_sync_api_key');
+  const apiKey = localStorage.getItem(APP_CONFIG.STORAGE_KEYS.API_KEY);
   if (apiKey) {
     config.headers['X-API-Key'] = apiKey;
   }

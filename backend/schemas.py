@@ -14,6 +14,7 @@ class TaskResponse(BaseModel):
     title: Optional[str] = None
     uploader: Optional[str] = "未分类"
     status: str
+    progress: int = 0
     
     # 细分状态也传给前端，以后可以在页面上做更详细的展示
     video_downloaded: bool

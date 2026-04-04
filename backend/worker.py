@@ -7,8 +7,15 @@ import yt_dlp
 from sqlalchemy.orm import Session
 from database import SessionLocal
 import models
+from dotenv import dotenv_values
 
 # ================= 配置区域 =================
+# rclone 可执行文件路径：只从 .env 配置文件读取
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_PATH = os.path.join(BASE_DIR, ".env")
+config = dotenv_values(ENV_PATH)
+RCLONE_EXECUTABLE = config.get("RCLONE_EXECUTABLE_PATH") or "/usr/bin/rclone"
+
 # 注意：这里改成了 "115:"，因为前端生成的配置节点头部是 [115]
 RCLONE_REMOTE = "115:/yt_downloads"
 RCLONE_CONF_PATH = "data/rclone.conf"
@@ -71,7 +78,25 @@ def process_task(task: models.Task, db: Session):
     
     download_error = None
     try:
+        # 【新增逻辑】：定义进度回调函数
+        last_update = time.time()
+        def yt_dlp_hook(d):
+            nonlocal last_update
+            if d['status'] == 'downloading':
+                # 尝试获取总大小或预估总大小
+                total = d.get('total_bytes') or d.get('total_bytes_estimate')
+                if total and total > 0:
+                    pct = int(d.get('downloaded_bytes', 0) / total * 100)
+                    now = time.time()
+                    # 【核心技巧：节流】每隔 2 秒才向数据库写一次，防止锁死 SQLite
+                    if now - last_update > 2.0 or pct >= 100:
+                        task.progress = pct
+                        db.commit()
+                        last_update = now
+
         opts = get_yt_dlp_options(task, target_dir)
+        opts['progress_hooks'] = [yt_dlp_hook] # 将监听器挂载给 yt-dlp
+
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([task.url])
     except Exception as e:
@@ -104,7 +129,7 @@ def process_task(task: models.Task, db: Session):
         remote_path = f"{RCLONE_REMOTE}/{task.uploader}"
         result = subprocess.run(
             [
-                "rclone", "move", target_dir, remote_path, 
+                RCLONE_EXECUTABLE, "move", target_dir, remote_path, 
                 "--config", RCLONE_CONF_PATH, 
                 "--delete-empty-src-dirs"
             ],

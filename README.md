@@ -40,7 +40,7 @@ bilibili-sync-app/
 
 - Python 3.8+
 - Node.js 16+
-- rclone（用于云端存储上传）
+- rclone（用于云端存储上传，请使用您的第三方修改版）
 
 ### 后端安装
 

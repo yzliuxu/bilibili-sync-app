@@ -13,6 +13,7 @@ class Task(Base):
     
     # 总体状态
     status = Column(String, default="pending")
+    progress = Column(Integer, default=0) # <--- 新增：记录 0-100 的下载百分比
 
     # 本地组件状态
     video_downloaded = Column(Boolean, default=False)

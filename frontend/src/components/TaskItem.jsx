@@ -23,6 +23,16 @@ export default function TaskItem({ task, onRetry }) {
         </div>
         <p className="text-xs text-gray-500 mt-1 font-mono truncate">{task.url}</p>
         
+        {/* 【新增】：动态进度条渲染逻辑 */}
+        {task.status === 'downloading' && (
+          <div className="mt-3 w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="bg-blue-500 h-1.5 rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${task.progress}%` }}
+            ></div>
+          </div>
+        )}
+
         {task.error_msg && (
           <div className="mt-2 text-sm text-red-600 bg-red-100 p-2 rounded border border-red-200">
             <strong>详情:</strong> {task.error_msg}
@@ -31,8 +41,10 @@ export default function TaskItem({ task, onRetry }) {
       </div>
 
       <div className="mt-3 sm:mt-0 sm:ml-4 flex items-center space-x-3 whitespace-nowrap">
-        <span className={`text-sm font-semibold ${currentStatus.color}`}>
-          {currentStatus.text}
+        {/* 【新增】：在文字旁边显示百分比数字 */}
+        <span className={`text-sm font-semibold ${currentStatus.color} flex items-center space-x-1`}>
+          <span>{currentStatus.text}</span>
+          {task.status === 'downloading' && <span>{task.progress}%</span>}
         </span>
         
         {(task.status === 'failed' || task.status === 'partial_completed') && (
