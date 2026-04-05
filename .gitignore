@@ -34,3 +34,7 @@ yarn-error.log*
 .env
 .env.local
 .DS_Store
+
+# ========================
+build_output/
+backend/build
