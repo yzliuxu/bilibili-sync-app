@@ -14,21 +14,12 @@ bash deploy.sh production
 cp .env.example .env
 # 编辑 .env，修改 SECRET_API_KEY
 
-# 4. 配置 Nginx
-sudo cp nginx.conf.example /etc/nginx/sites-available/bilibili-sync
-# 编辑并替换 yourdomain.com
-sudo ln -s /etc/nginx/sites-available/bilibili-sync /etc/nginx/sites-enabled/
+# 4. 启动服务
+sudo systemctl start bilibili-sync-api
 
-# 5. 申请 SSL 证书
-sudo certbot certonly --nginx -d yourdomain.com -d www.yourdomain.com
-
-# 6. 测试并启动
-sudo nginx -t
-sudo systemctl restart nginx bilibili-sync-api
-
-# 7. 验证
-curl https://yourdomain.com  # 前端
-curl https://yourdomain.com/api/docs  # API 文档
+# 5. 验证
+curl http://localhost:8000  # 前端和API
+curl http://localhost:8000/api/docs  # API 文档
 ```
 
 ---
@@ -39,8 +30,7 @@ curl https://yourdomain.com/api/docs  # API 文档
 - [ ] Python 3.10+ 已安装
 - [ ] Node.js 16+ 已安装
 - [ ] npm 已安装
-- [ ] 域名解析正确
-- [ ] 防火墙开放 80、443 端口
+- [ ] 防火墙开放 8000 端口
 - [ ] 至少 2GB RAM 可用
 
 ---
@@ -53,15 +43,11 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 复制输出到 `.env` 的 `SECRET_API_KEY`
 
-### 2. 启用 HTTPS
-```bash
-# 使用 Let's Encrypt
-sudo certbot certonly --nginx -d yourdomain.com
-
-# Nginx 会自动配置
+### 2. 配置 CORS
+编辑 `backend/main.py`，设置允许的来源：
+```python
+FRONTEND_URL = "http://your-server:8000"
 ```
-
-### 3. 配置 CORS
 编辑 `backend/main.py`，设置允许的来源：
 ```python
 FRONTEND_URL = "https://yourdomain.com"
@@ -106,19 +92,6 @@ sudo journalctl -u bilibili-sync-api -n 50
 
 # 检查端口占用
 sudo lsof -i :8000
-```
-
-### Nginx 报错
-
-```bash
-# 测试配置
-sudo nginx -t
-
-# 查看错误日志
-sudo tail -f /var/log/nginx/error.log
-
-# 重启 Nginx
-sudo systemctl restart nginx
 ```
 
 ### 数据库无法访问
@@ -202,7 +175,6 @@ sudo crontab -e
 ## 📝 日志位置
 
 - **后端**: `/var/www/bilibili-sync-app/logs/`
-- **Nginx**: `/var/log/nginx/`
 - **Systemd**: `journalctl -u bilibili-sync-api`
 
 ---
@@ -254,7 +226,7 @@ curl -H "X-API-Key: your-secret-key" https://yourdomain.com/api/health
 sqlite3 /var/www/bilibili-sync-app/data/app.db ".tables"
 
 # 4. 所有服务状态
-sudo systemctl status bilibili-sync-api nginx
+sudo systemctl status bilibili-sync-api
 ```
 
 ---

@@ -173,7 +173,6 @@ X-API-Key: your-secret-key
   - 修改默认API Key为强密码
   - 将CORS配置从 `"*"` 改为特定域名
   - 使用HTTPS
-  - 部署反向代理（如Nginx）
 
 - **数据安全**:
   - 妥善保管cookie文件

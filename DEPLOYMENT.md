@@ -178,9 +178,7 @@ sudo journalctl -u bilibili-sync-api -f
 
 ## 前端部署
 
-### 方案 A: 使用 Nginx 反向代理
-
-#### 1. 构建前端
+### 1. 构建前端
 
 ```bash
 cd frontend
@@ -189,87 +187,15 @@ npm run build
 # dist/ 目录将包含构建后的文件
 ```
 
-#### 2. 配置 Nginx
+### 2. 部署前端文件
 
-创建 `/etc/nginx/sites-available/bilibili-sync`:
-
-```nginx
-upstream api_backend {
-    server 127.0.0.1:8000;
-}
-
-server {
-    listen 80;
-    server_name yourdomain.com www.yourdomain.com;
-    
-    # 重定向到HTTPS
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name yourdomain.com www.yourdomain.com;
-    
-    # SSL证书配置 (使用Let's Encrypt)
-    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
-    
-    # SSL安全配置
-    ssl_session_timeout 1d;
-    ssl_session_cache shared:SSL:50m;
-    ssl_session_tickets off;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
-    
-    # 安全头
-    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    
-    # 根目录
-    root /var/www/bilibili-sync-app/frontend/dist;
-    
-    # 单页面应用路由
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-    
-    # API代理
-    location /api/ {
-        proxy_pass http://api_backend;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_buffering off;
-        proxy_request_buffering off;
-    }
-    
-    # 缓存静态资源
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        expires 365d;
-        add_header Cache-Control "public, immutable";
-    }
-}
-```
-
-#### 3. 启用站点并重启 Nginx
+将构建后的 `dist/` 目录复制到后端目录：
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/bilibili-sync /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
+cp -r frontend/dist backend/
 ```
 
-#### 4. 配置 SSL 证书 (Let's Encrypt)
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot certonly --nginx -d yourdomain.com -d www.yourdomain.com
-```
+后端会自动检测并服务前端静态文件。
 
 ---
 
@@ -303,7 +229,6 @@ sudo certbot certonly --nginx -d yourdomain.com -d www.yourdomain.com
 # 检查服务状态
 check_service() {
     systemctl is-active --quiet bilibili-sync-api || systemctl restart bilibili-sync-api
-    systemctl is-active --quiet nginx || systemctl restart nginx
 }
 
 # 检查磁盘空间
@@ -370,11 +295,11 @@ sudo lsof -i :8000
 
 ### 前端加载缓慢
 ```bash
-# 检查 Nginx 配置
-sudo nginx -t
+# 检查后端日志
+sudo journalctl -u bilibili-sync-api -f
 
-# 查看原始 gzip 配置
-curl -I https://yourdomain.com
+# 检查网络连接
+curl -I http://localhost:8000
 ```
 
 ### 数据库锁定

@@ -239,7 +239,6 @@ main() {
             print_warning "后续步骤:"
             echo "  1. 修改 .env 中的 SECRET_API_KEY"
             echo "  2. 部署 Systemd 服务 (参考 DEPLOYMENT.md)"
-            echo "  3. 配置 Nginx 反向代理"
             ;;
         dev)
             check_prerequisites

@@ -5,35 +5,19 @@ After=network.target
 
 [Service]
 # ========== 服务类型 ==========
-Type=notify
+Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/var/www/bilibili-sync-app
+WorkingDirectory=/opt/bilibili-sync-app
 
 # ========== 环境配置 ==========
-Environment="PATH=/var/www/bilibili-sync-app/venv/bin"
-EnvironmentFile=/var/www/bilibili-sync-app/.env
+EnvironmentFile=/opt/bilibili-sync-app/.env
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=bilibili-sync
 
 # ========== 进程管理 ==========
-ExecStart=/var/www/bilibili-sync-app/venv/bin/gunicorn \
-    --workers 4 \
-    --worker-class uvicorn.workers.UvicornWorker \
-    --worker-tmp-dir /dev/shm \
-    --bind 127.0.0.1:8000 \
-    --bind unix:/var/run/bilibili-sync-api.sock \
-    --access-logfile /var/www/bilibili-sync-app/logs/access.log \
-    --error-logfile /var/www/bilibili-sync-app/logs/error.log \
-    --log-level info \
-    --timeout 300 \
-    --keep-alive 5 \
-    --max-requests 1000 \
-    --max-requests-jitter 100 \
-    main:app
-
-ExecReload=/bin/kill -s HUP $MAINPID
+ExecStart=/opt/bilibili-sync-app/bilibili-sync-api
 
 # ========== 重启策略 ==========
 Restart=always
