@@ -169,18 +169,44 @@ def process_task(task: models.Task, db: Session):
 
 def run_worker():
     print("=========================================")
-    print(" Worker 启动！监听任务中...")
+    print(" Worker 启动！执行幽灵状态回收...")
+    
+    # 状态机自我修复逻辑
+    repair_db = SessionLocal()
+    try:
+        orphaned_tasks = repair_db.query(models.Task).filter(
+            models.Task.status.in_(["downloading", "uploading"])
+        ).all()
+        for t in orphaned_tasks:
+            t.status = "pending"
+            t.error_msg = "检测到服务意外中断，任务已重置入队列"
+            # 还原之前的进度标志
+            t.video_downloaded = False
+            t.danmaku_downloaded = False
+            t.comment_downloaded = False
+        if orphaned_tasks:
+            repair_db.commit()
+            print(f" 已将 {len(orphaned_tasks)} 个卡死任务重置为等待状态。")
+    except Exception as e:
+        print(f" 状态修复失败: {e}")
+    finally:
+        repair_db.close()
+
+    print(" Worker 监听任务中...")
     print("=========================================")
+    
     while True:
         db = SessionLocal()
         try:
             task = db.query(models.Task).filter(models.Task.status == "pending").first()
             if task: 
-                process_task(task, db)
+                 process_task(task, db)
             else: 
-                time.sleep(5)
+                 time.sleep(5)
         except Exception as e:
             print(f"Worker Error: {traceback.format_exc()}")
+            # 严重错误时务必 rollback，防止会话对象被污染导致后续查询全崩
+            db.rollback()
             time.sleep(5)
         finally:
             db.close()
