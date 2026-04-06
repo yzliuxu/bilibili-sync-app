@@ -1,40 +1,96 @@
-# ========================
-# 后端 (Python) 忽略清单
-# ========================
-backend/venv/
-backend/env/
-
-# Python 编译缓存
-backend/__pycache__/
-*.pyc
-
-# 数据库与临时下载文件 (保护你的隐私和网盘数据)
-backend/data/*.db
-backend/data/temp_downloads/
-backend/data/yt_cookies.txt
+# ===========================================
+# Bilibili Sync App - Git Ignore Rules
+# ===========================================
 
 # ========================
-# 前端 (Node/React) 忽略清单
+# 1. Data & State (核心资产与隐私：坚决不进版本库)
 # ========================
-# 依赖包 (绝对不能传，几百MB)
-frontend/node_modules/
+# 完全屏蔽数据目录，防止泄漏 115 网盘 Cookie、SQLite 数据库以及下载到一半的庞大视频
+data/
+backend/data/
+*.db
+*.sqlite
+*.sqlite3
+# 防御性忽略可能在根目录产生的缓存
+temp_downloads/
+yt_cookies.txt
+rclone.conf
 
-# 编译后的打包文件
+# ========================
+# 2. Build & Packaging (编译与打包产物)
+# ========================
+# 前端 Vite 构建的静态产物
 frontend/dist/
 frontend/build/
 
-# 日志文件
+# 后端 PyInstaller 编译出来的二进制文件与中间件
+backend/dist/
+backend/build/
+*.spec
+
+# 全局及自建的发布压缩包/文件夹
+dist/
+build/
+build_output/
+bilibili-sync-release/
+*.tar.gz
+*.zip
+
+# ========================
+# 3. Runtime & Logs (Nohup 后台驻留产生的进程与日志)
+# ========================
+# 匹配我们 start.sh 生成的 api.pid, worker.pid 以及系统默认的 pid 锁
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# 匹配 api.log, worker.log 以及前端/系统产生的各种日志
+logs/
+backend/logs/
+*.log
 npm-debug.log*
-yarn-debug.log*
 yarn-error.log*
 
 # ========================
-# 环境变量与系统文件
+# 4. Environment Variables (环境变量配置)
 # ========================
+# 包含 Tailscale IP 和 API 秘钥等极其敏感的信息
 .env
-.env.local
-.DS_Store
+.env.*
 
 # ========================
-build_output/
-backend/build
+# 5. Python & Node.js (依赖包与字节码)
+# ========================
+# 虚拟环境与依赖
+venv/
+env/
+backend/venv/
+backend/env/
+node_modules/
+frontend/node_modules/
+
+# Python 字节码
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ========================
+# 6. IDE / Editor / OS Files (系统与编辑器垃圾文件)
+# ========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+*.bak
+*.backup

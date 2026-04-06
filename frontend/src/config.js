@@ -1,6 +1,6 @@
 const APP_CONFIG = {
   // API 与后端交互
-  API_BASE_URL: 'http://localhost:8000',
+  API_BASE_URL: '',
   API: {
     VERIFY: '/api/verify',
     TASKS: '/api/tasks',
