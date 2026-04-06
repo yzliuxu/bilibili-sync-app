@@ -1,7 +1,10 @@
 #!/bin/bash
 
+# =========================================================
 # Bilibili Sync App - 纯净内网版编译脚本 (Tailscale + Nohup)
+# =========================================================
 
+# 遇到任何错误立即停止
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,12 +33,14 @@ build_backend() {
         python3 -m venv venv
         print_status "虚拟环境已创建"
     fi
+    # 激活脚本专属的虚拟环境
     source venv/bin/activate
     
     pip install --upgrade pip setuptools wheel
     pip install -r requirements.txt
     pip install pyinstaller
     
+    # 强力清理上一轮的编译残留，确保环境绝对干净
     rm -rf build dist spec 2>/dev/null || true
     
     # 1. 编译 API 进程
@@ -58,7 +63,7 @@ build_backend() {
         --strip worker.py
     
     deactivate
-    print_status "后端双进程编译完成"
+    print_status "后端双进程编译完成！"
 }
 
 build_frontend() {
@@ -66,7 +71,7 @@ build_frontend() {
     cd "$PROJECT_DIR/frontend"
     npm ci
     npm run build
-    print_status "前端静态资源构建完成"
+    print_status "前端静态资源构建完成！"
 }
 
 prepare_output() {
@@ -84,7 +89,7 @@ prepare_output() {
     # 提取配置模板
     cp "$PROJECT_DIR/.env.example" "$BUILD_OUTPUT/.env.example"
     
-    # 动态生成 start.sh (已包含日志轻量归档防御)
+    # ========== 动态生成 start.sh ==========
     cat > "$BUILD_OUTPUT/start.sh" << 'EOF'
 #!/bin/bash
 chmod +x bilibili-sync-api bilibili-sync-worker
@@ -107,7 +112,7 @@ echo "✅ 所有服务运行中！请查看 api.log 和 worker.log。"
 EOF
     chmod +x "$BUILD_OUTPUT/start.sh"
 
-    # 动态生成 stop.sh (已改为优雅退出，并包含 rclone 僵尸进程级联狙杀)
+    # ========== 动态生成 stop.sh ==========
     cat > "$BUILD_OUTPUT/stop.sh" << 'EOF'
 #!/bin/bash
 echo "🛑 停止 Bilibili-Sync-App..."
@@ -128,83 +133,7 @@ echo "✅ 服务已彻底关闭。"
 EOF
     chmod +x "$BUILD_OUTPUT/stop.sh"
 
-    # 生成部署说明
-    cat > "$BUILD_OUTPUT/DEPLOYMENT_GUIDE.txt" << 'EOF'
-========== 🚀 零依赖内网部署指南 ==========
-
-1. 解压文件到服务器任意目录 (例如 /opt/bilibili-sync)
-2. 复制配置文件: cp .env.example .env
-3. 配置 .env:
-   - 填入你的 Tailscale IP (LISTEN_HOST=100.x.x.x)
-   - 修改 SECRET_API_KEY
-   - 确认 rclone 路径 (RCLONE_EXECUTABLE_PATH)
-4. 启动服务: ./start.sh
-5. 停止服务: ./stop.sh
-6. 访问: http://你的Tailscale_IP:8000
-EOF
-}
-    echo -e "\n${YELLOW}📁 组装发布包...${NC}"
-    rm -rf "$BUILD_OUTPUT" && mkdir -p "$BUILD_OUTPUT"
-    
-    # 提取可执行文件
-    cp "$PROJECT_DIR/backend/dist/bilibili-sync-api" "$BUILD_OUTPUT/"
-    cp "$PROJECT_DIR/backend/dist/bilibili-sync-worker" "$BUILD_OUTPUT/"
-    chmod +x "$BUILD_OUTPUT/bilibili-sync-api" "$BUILD_OUTPUT/bilibili-sync-worker"
-    
-    # 提取前端文件
-    cp -r "$PROJECT_DIR/frontend/dist" "$BUILD_OUTPUT/"
-    
-    # 提取配置模板
-    cp "$PROJECT_DIR/.env.example" "$BUILD_OUTPUT/.env.example"
-    
-    # 动态生成 start.sh
-    cat > "$BUILD_OUTPUT/start.sh" << 'EOF'
-#!/bin/bash
-chmod +x bilibili-sync-api bilibili-sync-worker
-
-echo "🚀 启动 Bilibili-Sync-App..."
-
-# 轻量级日志轮转：只保留上一台次的日志，防止把 25G 硬盘撑爆
-echo "📁 归档旧日志..."
-[ -f "api.log" ] && mv api.log api.log.bak
-[ -f "worker.log" ] && mv worker.log worker.log.bak
-
-# 启动 API 进程
-nohup ./bilibili-sync-api > api.log 2>&1 &
-echo $! > api.pid
-echo "[OK] API 监听进程已启动 (PID: $(cat api.pid))"
-
-# 启动 Worker 进程
-nohup ./bilibili-sync-worker > worker.log 2>&1 &
-echo $! > worker.pid
-echo "[OK] 下载上传工作进程已启动 (PID: $(cat worker.pid))"
-
-echo "✅ 所有服务运行中！请查看 api.log 和 worker.log。"
-EOF
-    chmod +x "$BUILD_OUTPUT/start.sh"
-
-    # 动态生成 stop.sh
-    cat > "$BUILD_OUTPUT/stop.sh" << 'EOF'
-#!/bin/bash
-echo "🛑 停止 Bilibili-Sync-App..."
-
-# 优雅地停止 Python 进程 (使用默认的 SIGTERM - 15，让程序有时间释放文件锁)
-[ -f "api.pid" ] && kill $(cat api.pid) 2>/dev/null && rm api.pid && echo "API 已停止"
-[ -f "worker.pid" ] && kill $(cat worker.pid) 2>/dev/null && rm worker.pid && echo "Worker 已停止"
-
-# 兜底清理
-pkill -f bilibili-sync-api || true
-pkill -f bilibili-sync-worker || true
-
-# 级联狙杀：彻底清除可能游荡在后台的 rclone 僵尸上传进程
-echo "🧹 清理后台残留的网络传输子进程..."
-pkill -f rclone || true
-
-echo "✅ 服务已彻底关闭。"
-EOF
-    chmod +x "$BUILD_OUTPUT/stop.sh"
-
-    # 生成部署说明
+    # ========== 生成部署说明 ==========
     cat > "$BUILD_OUTPUT/DEPLOYMENT_GUIDE.txt" << 'EOF'
 ========== 🚀 零依赖内网部署指南 ==========
 
@@ -228,6 +157,7 @@ create_archive() {
     print_status "✅ 最终产物已生成: $PROJECT_DIR/$ARCHIVE_NAME"
 }
 
+# ================= 主控制流 =================
 main() {
     check_build_env
     build_backend
@@ -236,4 +166,5 @@ main() {
     create_archive
 }
 
+# 执行主控制流
 main "$@"
