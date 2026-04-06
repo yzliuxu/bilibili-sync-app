@@ -29,7 +29,7 @@ def verify_api_key(api_key: str = Security(api_key_header)):
 app = FastAPI(title="Bilibili Sync API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 在生产环境中建议设置为前端的具体域名
+    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1|100\.\d+\.\d+\.\d+)(:\d+)?)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
