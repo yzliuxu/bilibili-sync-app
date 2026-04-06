@@ -152,9 +152,25 @@ EOF
 create_archive() {
     echo -e "\n${YELLOW}📦 创建压缩包...${NC}"
     cd "$PROJECT_DIR"
-    ARCHIVE_NAME="bilibili-sync-release-$(date +%Y%m%d).tar.gz"
-    tar -czf "$ARCHIVE_NAME" -C "$BUILD_OUTPUT" .
+    
+    # 定义解压后你希望服务器上生成的目录名
+    RELEASE_DIR="bilibili-sync"
+    ARCHIVE_NAME="${RELEASE_DIR}-release-$(date +%Y%m%d).tar.gz"
+    
+    # 清理可能残留的同名旧目录防止冲突
+    rm -rf "$RELEASE_DIR" 2>/dev/null || true
+    
+    # 核心魔法：将 build_output 临时重命名为你想要的目录名
+    mv "$BUILD_OUTPUT" "$RELEASE_DIR"
+    
+    # 此时打包，整个文件夹连同外壳一起被压入 tar
+    tar -czf "$ARCHIVE_NAME" "$RELEASE_DIR"
+    
+    # 提上裤子恢复原状，不影响你本地的开发环境和下次打包
+    mv "$RELEASE_DIR" "$BUILD_OUTPUT"
+    
     print_status "✅ 最终产物已生成: $PROJECT_DIR/$ARCHIVE_NAME"
+    print_info "💡 提示: 在服务器执行解压后，会自动生成并放进纯净的 ${RELEASE_DIR}/ 目录中"
 }
 
 # ================= 主控制流 =================
