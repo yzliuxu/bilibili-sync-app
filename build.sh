@@ -88,13 +88,24 @@ prepare_output() {
     cat > "$BUILD_OUTPUT/start.sh" << 'EOF'
 #!/bin/bash
 chmod +x bilibili-sync-api bilibili-sync-worker
+
 echo "🚀 启动 Bilibili-Sync-App..."
+
+# 轻量级日志轮转：只保留上一台次的日志，防止把 25G 硬盘撑爆
+echo "📁 归档旧日志..."
+[ -f "api.log" ] && mv api.log api.log.bak
+[ -f "worker.log" ] && mv worker.log worker.log.bak
+
+# 启动 API 进程
 nohup ./bilibili-sync-api > api.log 2>&1 &
 echo $! > api.pid
 echo "[OK] API 监听进程已启动 (PID: $(cat api.pid))"
+
+# 启动 Worker 进程
 nohup ./bilibili-sync-worker > worker.log 2>&1 &
 echo $! > worker.pid
 echo "[OK] 下载上传工作进程已启动 (PID: $(cat worker.pid))"
+
 echo "✅ 所有服务运行中！请查看 api.log 和 worker.log。"
 EOF
     chmod +x "$BUILD_OUTPUT/start.sh"
@@ -103,10 +114,19 @@ EOF
     cat > "$BUILD_OUTPUT/stop.sh" << 'EOF'
 #!/bin/bash
 echo "🛑 停止 Bilibili-Sync-App..."
-[ -f "api.pid" ] && kill -9 $(cat api.pid) 2>/dev/null && rm api.pid && echo "API 已停止"
-[ -f "worker.pid" ] && kill -9 $(cat worker.pid) 2>/dev/null && rm worker.pid && echo "Worker 已停止"
+
+# 优雅地停止 Python 进程 (使用默认的 SIGTERM - 15，让程序有时间释放文件锁)
+[ -f "api.pid" ] && kill $(cat api.pid) 2>/dev/null && rm api.pid && echo "API 已停止"
+[ -f "worker.pid" ] && kill $(cat worker.pid) 2>/dev/null && rm worker.pid && echo "Worker 已停止"
+
+# 兜底清理
 pkill -f bilibili-sync-api || true
 pkill -f bilibili-sync-worker || true
+
+# 级联狙杀：彻底清除可能游荡在后台的 rclone 僵尸上传进程
+echo "🧹 清理后台残留的网络传输子进程..."
+pkill -f rclone || true
+
 echo "✅ 服务已彻底关闭。"
 EOF
     chmod +x "$BUILD_OUTPUT/stop.sh"
