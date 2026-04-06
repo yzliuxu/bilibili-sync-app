@@ -11,19 +11,24 @@ from sqlalchemy.orm import Session
 import uvicorn
 from dotenv import load_dotenv
 
-# ================= 核心路径与环境变量初始化 =================
-# 必须放在最前面，确保启动时读取到 .env 中的网络配置和密码
+# ================= 核心路径与环境解析 =================
+# 确保在 PyInstaller 打包环境中也能准确定位可执行文件所在目录
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
 
-# 强行锁定工作区，防止相对路径读取如 "data/yt_cookies.txt" 报错
+# 强行切换工作目录，防范 nohup 启动时的路径漂移
 os.chdir(BASE_DIR)
-# 加载部署目录下的 .env 文件
+
+# 加载 .env 环境变量
 load_dotenv(BASE_DIR / ".env")
 
-# 引入项目模块 (此时 .env 已加载，工作目录已锁定)
+# 确保数据目录存在
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+# 加载环境变量后，再导入数据库模型，防止底层引发相对路径错误
 from database import engine, get_db
 import models
 import schemas
@@ -32,7 +37,7 @@ import schemas
 models.Base.metadata.create_all(bind=engine)
 
 # ================= 鉴权配置 =================
-# 这里使用了 os.getenv 去读取 .env 里的密码。如果读取不到，才会回退到 123456 防崩溃。
+# 动态从 .env 读取密钥，如果没填才降级为 123456
 SECRET_API_KEY = os.getenv("SECRET_API_KEY", "123456")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
@@ -41,6 +46,8 @@ def verify_api_key(api_key: str = Security(api_key_header)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效的 API Key")
 
 app = FastAPI(title="Bilibili Sync API")
+
+# 精准的 CORS 正则，匹配 Tailscale 和本地开发网段
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1|100\.\d+\.\d+\.\d+)(:\d+)?)$",
@@ -110,10 +117,12 @@ def update_setting(setting_in: schemas.SettingUpdate, db: Session = Depends(get_
         db.add(db_setting)
     db.commit()
 
+    # 修复：使用 DATA_DIR 绝对路径写入，防止找不到目录报错
     if setting_in.key == "yt_cookie":
-        with open("data/yt_cookies.txt", "w") as f:
+        yt_path = DATA_DIR / "yt_cookies.txt"
+        with open(yt_path, "w", encoding="utf-8") as f:
             f.write(setting_in.value)
-    return {"message": "yt-dlp配置已更新"}
+    return {"message": "配置已更新"}
 
 app.include_router(api_router)
 
@@ -121,22 +130,15 @@ app.include_router(api_router)
 def health():
     return {"status": "ok"}
 
-# ================= 静态前端路由挂载 =================
 def get_frontend_dist() -> Optional[Path]:
-    if getattr(sys, "frozen", False):
-        base_dir = Path(sys.executable).resolve().parent
-    else:
-        base_dir = Path(__file__).resolve().parent.parent
+    # 兼容打包环境与源码环境的前端目录寻找逻辑
+    candidate = BASE_DIR / "frontend" / "dist"
+    if candidate.exists():
+        return candidate
 
-    # 兼容部署包模式 (dist和执行文件在同级目录)
-    candidate_prod = base_dir / "dist"
-    if candidate_prod.exists():
-        return candidate_prod
-
-    # 兼容源码开发模式
-    candidate_dev = base_dir / "frontend" / "dist"
-    if candidate_dev.exists():
-        return candidate_dev
+    candidate = BASE_DIR / "dist"
+    if candidate.exists():
+        return candidate
 
     return None
 
@@ -144,16 +146,15 @@ frontend_dist = get_frontend_dist()
 if frontend_dist is not None:
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 else:
-    print("WARNING: Frontend dist folder not found. Web UI will not be available.")
+    print("Warning: Frontend dist folder not found!")
 
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
-
-    # 从 .env 读取绑定的网卡 IP (Tailscale IP)
-    # 如果 .env 没填，默认绑定 127.0.0.1，绝对禁止默认绑定公网 0.0.0.0
+    
+    # 修复：从环境变量提取 Tailscale IP 绑定。默认 127.0.0.1 防御公网探测
     LISTEN_HOST = os.getenv("LISTEN_HOST", "127.0.0.1")
     LISTEN_PORT = int(os.getenv("LISTEN_PORT", "8000"))
     
-    print(f"Server is starting. Binding to: {LISTEN_HOST}:{LISTEN_PORT}")
+    print(f"Server binding to Tailscale IP: {LISTEN_HOST}:{LISTEN_PORT}")
     uvicorn.run(app, host=LISTEN_HOST, port=LISTEN_PORT)
