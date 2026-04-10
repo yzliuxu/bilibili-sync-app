@@ -1,8 +1,8 @@
-流浪B站计划 (Bilibili Sync App)
+# 流浪B站计划 (Bilibili Sync App)
 
 这是一个自动化工具，旨在将 Bilibili 的视频（包括单个视频、合集、播放列表）高效地同步到云端存储（如 115 网盘）。它采用“下载一个、上传一个、即时销毁一个”的流水线模式，极大降低了对本地硬盘空间的依赖。主要我的 VPS 硬盘太小了，一次性下完可能会撑爆硬盘。
 
-在实际的使用中，我是在 VPS 上部署了这个项目，然后使用 Tailscale 将项目部署在虚拟网络上，规避了域名备案的问题并尽可能地提高了安全性（毕竟这种工具只有自己会访问）。
+在实际的使用中，我是在 VPS 上部署了这个项目，然后使用 `Tailscale` 将项目部署在虚拟网络上，规避了域名备案的问题并尽可能地提高了安全性（毕竟这种工具只有自己会访问）。
 
 🌟 核心特性
 
@@ -10,17 +10,17 @@
 
    - 流水线式作业：严格遵循原子化工作流——下载完成后立即上传，上传成功后立即删除本地文件。本地硬盘仅需预留单个最大视频的空间。
 
-   - 高性能后端：基于 FastAPI 开发，使用 SQLite WAL 模式确保读写并发性能。
+   - 高性能后端：基于 `FastAPI` 开发，使用 `SQLite WAL` 模式确保读写并发性能。
 
    - 实时状态追踪：前端通过轮询机制展示每个任务的下载百分比、弹幕下载状态、评论下载状态以及云端同步进度。
 
-   - 便捷的 Cookie 管理：支持在 Web 页面直接粘贴 yt-dlp 的 Netscape 格式 Cookie 和 115 网盘的原始 Cookie 字符串，系统会自动提取并生成 rclone 配置。
+   - 便捷的 Cookie 管理：支持在 Web 页面直接粘贴 Bilibili 的 Netscape 格式 Cookie 和 115 网盘的原始 Cookie 字符串，系统会自动提取并生成 rclone 配置。(目前还有点问题)
 
 🛠️ 技术栈
 
-   - 前端: React, Vite, Tailwind CSS, Axios
+   - 前端: `React`, `Vite`, `Tailwind CSS`, `Axios`
 
-   - 后端: FastAPI, SQLAlchemy (SQLite), Uvicorn
+   - 后端: `FastAPI`, `SQLAlchemy (SQLite)`, `Uvicorn`
 
    - 核心工具: yt-dlp (视频抓取), rclone (云端搬运), ffmpeg (音视频转码/合并)
 
@@ -39,12 +39,12 @@
 
 2. 后端配置
 
-    进入 backend 目录，安装依赖：
+    进入 `backend` 目录，安装依赖：
     ```Bash
 
    pip install -r requirements.txt
    ```
-    参考 .env.example 创建 .env 文件，配置 API 访问密钥和工具路径。
+    参考 `.env.example` 创建 `.env` 文件，配置 API 访问密钥和工具路径。
 
    启动 API 服务：
     ```Bash
@@ -79,12 +79,14 @@
 │   │   └── utils/api.js # Axios 拦截器与 API 封装
 └── data/              # 自动创建：存放数据库、Cookies 及临时文件
 ```
+
 📝 TODO 
 
 以下是本项目计划在未来版本中实现的功能：
+
 🛠️ 系统优化
 
-    [ ] Cookies：目前 115 不支持使用 Cookies 自动组装成 Rclone 能读取的配置文件，需要手动组装。
+    [ ] Cookies：目前不支持使用 Cookies 自动组装成 Rclone 能读取的配置文件，需要手动组装。
 
     [ ] 容器化部署：提供 Docker 一键部署镜像，内置所有环境依赖。
 
