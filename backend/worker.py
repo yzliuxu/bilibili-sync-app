@@ -9,10 +9,6 @@ from pathlib import Path
 import yt_dlp
 from sqlalchemy.orm import Session
 
-# ==============================================================================
-# 1. 架构级硬编码配置 (彻底抛弃 .env，直接物理锚定)
-# ==============================================================================
-
 import main
 BASE_DIR = main.BASE_DIR
 DATABASE_URL = main.DATABASE_URL
@@ -20,7 +16,7 @@ RCLONE_EXECUTABLE_PATH = main.RCLONE_EXECUTABLE_PATH
 RCLONE_CONFIG_PATH = main.RCLONE_CONFIG_PATH
 RCLONE_REMOTE_NAME = main.RCLONE_REMOTE_NAME
 
-# 强制切换当前进程的工作目录，杜绝一切相对路径引发的血案
+# 切换当前进程的工作目录
 os.chdir(BASE_DIR)
 
 
@@ -28,7 +24,7 @@ os.chdir(BASE_DIR)
 
 LOG_FILE_PATH = "/www/wwwroot/bilibili-sync-app/backend/worker_engine.log"
 
-# 配置日志引擎，强制无缓冲双路输出
+# 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] - %(message)s",
@@ -40,7 +36,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("WorkerEngine")
 
-logger.info("====== Worker 独立引擎进程启动，硬编码与日志总线已挂载 ======")
+logger.info("====== Worker 引擎启动 ======")
 
 # ==============================================================================
 # 3. 延迟加载数据库模块 
@@ -59,16 +55,17 @@ DATA_DIR = BASE_DIR / "data"
 YT_COOKIES_PATH = DATA_DIR / "yt_cookies.txt"
 TEMP_DIR = DATA_DIR / "temp_downloads"
 
-# 确保基础目录在物理磁盘上绝对存在
+# 确保基础目录在物理磁盘上存在
 DATA_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
 # ============================================
 
 def get_yt_dlp_options(task: models.Task, target_dir: str):
     if YT_COOKIES_PATH.exists():
-        logger.info(f"[{task.id}] 检测到 YouTube Cookie 文件，下载选项将启用 Cookie 支持。")
+        logger.info(f"[{task.id}] 检测到 Bilibili Cookies 文件，下载选项将启用 Cookies 支持。")
     else:
-        logger.info(f"[{task.id}] 未找到 YouTube Cookie 文件，下载选项将以匿名模式执行，可能无法下载受限内容。")
+        logger.info(f"[{task.id}] 未找到 Bilibili Cookies 文件，下载选项将以匿名模式执行，可能无法下载受限内容。")
+    # FFMPEG_BINARY_PATH 环境变量允许用户指定自定义的 ffmpeg 可执行文件路径，增强兼容性和性能。如果未设置，则默认使用系统环境中的 ffmpeg。
     FFMPEG_PATH = os.getenv("FFMPEG_BINARY_PATH", "ffmpeg")
     opts = {
         'FFMPEG_LOCATION': FFMPEG_PATH,
@@ -94,31 +91,69 @@ def check_local_files(target_dir: str, task: models.Task):
         elif f.endswith('.info.json'): task.comment_downloaded = True
 
 def process_task(task: models.Task, db: Session):
-    logger.info(f">>> [调度器] 开始处理任务 ID [{task.id}]: {task.url}")
+    print(f"\n>>> 开始处理任务 [{task.id}]: {task.url}")
     
     try:
+        # 1. 预解析元数据 (使用 extract_flat 快速获取列表结构)
         ydl_meta_opts = {
             'cookiefile': str(YT_COOKIES_PATH) if YT_COOKIES_PATH.exists() else None,
-            'extract_flat': True, 
-            'quiet': True
+            'extract_flat': True, # 核心：只取列表，不取具体视频流
+            'quiet': True,
+            'ignoreerrors': True
         }
         with yt_dlp.YoutubeDL(ydl_meta_opts) as ydl:
             info = ydl.extract_info(task.url, download=False)
+            
+            # === 核心逻辑：处理合集/播放列表/UP主主页 ===
+            # 如果发现 entries 字段且类型是 playlist，说明是一个合集
+            if 'entries' in info and info.get('_type') == 'playlist':
+                entries = list(info['entries'])
+                print(f"[{task.id}] 检测到合集/列表，包含 {len(entries)} 个视频，正在批量展开入队...")
+                
+                for entry in entries:
+                    if not entry: continue
+                    # 获取该条目的具体 URL
+                    entry_url = entry.get('url') or entry.get('webpage_url')
+                    if not entry_url and entry.get('id'):
+                        entry_url = f"https://www.bilibili.com/video/{entry['id']}"
+                    
+                    if not entry_url: continue
+
+                    # 检查是否已存在（避免合集内视频重复添加）
+                    exists = db.query(models.Task).filter(models.Task.url == entry_url).first()
+                    if not exists:
+                        new_task = models.Task(
+                            url=entry_url,
+                            title=entry.get('title', '等待解析...'),
+                            uploader=info.get('uploader') or info.get('title') or '未分类'
+                        )
+                        db.add(new_task)
+                
+                # 将原始的“合集任务”标记为已完成（已展开）
+                task.status = "completed"
+                task.title = f"[已展开合集] {info.get('title', '未知名称')}"
+                task.progress = 100
+                db.commit()
+                print(f"[{task.id}] 合集已成功拆分为独立任务。")
+                return # 结束当前合集任务的处理，转向下一个独立视频任务
+            
+            # === 如果是单视频，继续原有逻辑 ===
             task.video_id = info.get('id', str(int(time.time())))
             task.title = info.get('title', 'Unknown Title')
             
             raw_uploader = info.get('uploader') or info.get('channel') or '未分类UP主'
             task.uploader = re.sub(r'[\\/:*?"<>|]', '_', raw_uploader).strip()
             db.commit()
-            logger.info(f"[{task.id}] 元数据解析完成: UP主={task.uploader}, 标题={task.title}")
+
     except Exception as e:
         task.status = "failed"
         task.error_msg = f"解析失败: {str(e)}"
         db.commit()
-        logger.error(f"[{task.id}] 解析阶段发生异常: {str(e)}")
         return
 
-    target_dir = str(TEMP_DIR / task.video_id)
+    # ... 后续的下载和上传逻辑保持不变 ...
+    # 以Up主的名字为子目录进行下载，确保不同UP主的视频文件不会混淆在一起
+    target_dir = str(TEMP_DIR / task.uploader)
     os.makedirs(target_dir, exist_ok=True)
 
     task.status = "downloading"
