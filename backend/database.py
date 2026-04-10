@@ -11,11 +11,13 @@ else:
     BASE_DIR = Path(__file__).resolve().parent.parent
 
 # 确保数据目录绝对存在
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
+# DATA_DIR = BASE_DIR / "data"
+# DATA_DIR.mkdir(exist_ok=True)
 
 # 组合出绝对安全的 SQLite 连接路径
-DB_PATH = DATA_DIR / "app.db"
+
+import main
+DB_PATH = main.DATA_DIR / "app.db"
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}?timeout=5"
 
 # 创建数据库引擎 (check_same_thread=False 是 FastAPI + SQLite 并发写入必须的)

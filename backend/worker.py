@@ -4,39 +4,74 @@ import sys
 import subprocess
 import traceback
 import re
+import logging
 from pathlib import Path
-
 import yt_dlp
 from sqlalchemy.orm import Session
-from dotenv import load_dotenv
 
-# ================= 环境与路径初始化 =================
-if getattr(sys, "frozen", False):
-    BASE_DIR = Path(sys.executable).resolve().parent
-else:
-    BASE_DIR = Path(__file__).resolve().parent.parent
+# ==============================================================================
+# 1. 架构级硬编码配置 (彻底抛弃 .env，直接物理锚定)
+# ==============================================================================
 
+import main
+BASE_DIR = main.BASE_DIR
+DATABASE_URL = main.DATABASE_URL
+RCLONE_EXECUTABLE_PATH = main.RCLONE_EXECUTABLE_PATH
+RCLONE_CONFIG_PATH = main.RCLONE_CONFIG_PATH
+RCLONE_REMOTE_NAME = main.RCLONE_REMOTE_NAME
+
+# 强制切换当前进程的工作目录，杜绝一切相对路径引发的血案
 os.chdir(BASE_DIR)
-load_dotenv(BASE_DIR / ".env")
 
-from database import SessionLocal
-import models
 
-# ================= 配置区域 =================
-RCLONE_EXECUTABLE = os.getenv("RCLONE_EXECUTABLE_PATH", "/usr/bin/rclone")
-RCLONE_REMOTE = os.getenv("RCLONE_REMOTE", "115:/yt_downloads") # 增加容错
+
+
+LOG_FILE_PATH = "/www/wwwroot/bilibili-sync-app/backend/worker_engine.log"
+
+# 配置日志引擎，强制无缓冲双路输出
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] [%(levelname)s] - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.FileHandler(LOG_FILE_PATH, encoding='utf-8'), # 第一路：实时落盘物理文件
+        logging.StreamHandler(sys.stdout)                     # 第二路：实时推送到宝塔/Supervisor 日志面板
+    ]
+)
+logger = logging.getLogger("WorkerEngine")
+
+logger.info("====== Worker 独立引擎进程启动，硬编码与日志总线已挂载 ======")
+
+# ==============================================================================
+# 3. 延迟加载数据库模块 
+# ==============================================================================
+try:
+    from database import SessionLocal
+    import models
+    logger.info("SQLite 数据库模块挂载成功。")
+except Exception as e:
+    logger.error(f"数据库模块挂载致命失败: {str(e)}")
+    sys.exit(1)
+
+# ================= 业务目录配置区域 =================
+# "/www/wwwroot/bilibili-sync-app/backend"
 DATA_DIR = BASE_DIR / "data"
-RCLONE_CONF_PATH = DATA_DIR / "rclone.conf"
 YT_COOKIES_PATH = DATA_DIR / "yt_cookies.txt"
 TEMP_DIR = DATA_DIR / "temp_downloads"
 
+# 确保基础目录在物理磁盘上绝对存在
 DATA_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
-
-# ================= 核心业务逻辑 =================
+# ============================================
 
 def get_yt_dlp_options(task: models.Task, target_dir: str):
+    if YT_COOKIES_PATH.exists():
+        logger.info(f"[{task.id}] 检测到 YouTube Cookie 文件，下载选项将启用 Cookie 支持。")
+    else:
+        logger.info(f"[{task.id}] 未找到 YouTube Cookie 文件，下载选项将以匿名模式执行，可能无法下载受限内容。")
+    FFMPEG_PATH = os.getenv("FFMPEG_BINARY_PATH", "ffmpeg")
     opts = {
+        'FFMPEG_LOCATION': FFMPEG_PATH,
         'outtmpl': f'{target_dir}/%(title)s_%(id)s.%(ext)s',
         'cookiefile': str(YT_COOKIES_PATH) if YT_COOKIES_PATH.exists() else None,
         'writesubtitles': True,
@@ -46,14 +81,6 @@ def get_yt_dlp_options(task: models.Task, target_dir: str):
         'writeinfojson': True,
         'quiet': True,
         'no_warnings': True,
-        
-        # ========== 极限网络防御（防卡死核心） ==========
-        'socket_timeout': 15,      # 15秒无响应立即掐断，防止 socket 无限期挂起
-        'retries': 3,              # 失败后最多重试 3 次
-        'fragment_retries': 3,     # m4s 分片下载失败重试 3 次
-        'http_headers': {          # 伪装正常浏览器，大幅降低 B站 连接重置拦截率
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
     }
     if task.video_uploaded:
         opts['skip_download'] = True
@@ -67,71 +94,37 @@ def check_local_files(target_dir: str, task: models.Task):
         elif f.endswith('.info.json'): task.comment_downloaded = True
 
 def process_task(task: models.Task, db: Session):
-    print(f"\n>>> 开始处理任务 [{task.id}]: {task.url}")
+    logger.info(f">>> [调度器] 开始处理任务 ID [{task.id}]: {task.url}")
     
-    # ================= 第一阶段：智能元数据解析与合集拆分 =================
     try:
         ydl_meta_opts = {
             'cookiefile': str(YT_COOKIES_PATH) if YT_COOKIES_PATH.exists() else None,
-            'extract_flat': 'in_playlist', # 【核心魔法】：遇到合集时，不要下载，只提取扁平列表
-            'quiet': True,
-            'socket_timeout': 15,
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
+            'extract_flat': True, 
+            'quiet': True
         }
         with yt_dlp.YoutubeDL(ydl_meta_opts) as ydl:
             info = ydl.extract_info(task.url, download=False)
-            
-            # 【原子化拆分拦截】：如果是 UP主主页或播放列表，立刻进行拆分，打散成独立任务
-            if 'entries' in info or info.get('_type') == 'playlist':
-                entries = info.get('entries', [])
-                added_count = 0
-                for entry in entries:
-                    if not entry: continue
-                    # 提取子视频的 URL
-                    entry_url = entry.get('url') or entry.get('webpage_url')
-                    if entry_url:
-                        # 防错：B站有时返回短链，需补全为绝对路径
-                        if not entry_url.startswith('http'):
-                            entry_url = f"https://www.bilibili.com/video/{entry_url}"
-                            
-                        # 数据库去重：避免重复添加已经存在的视频任务
-                        exists = db.query(models.Task).filter(models.Task.url == entry_url).first()
-                        if not exists:
-                            new_task = models.Task(url=entry_url)
-                            db.add(new_task)
-                            added_count += 1
-                            
-                # 功成身退：把当前的“父级巨无霸任务”立刻标记为已完成
-                task.status = "completed"
-                task.title = info.get('title', 'UP主合集 / 播放列表')
-                task.progress = 100
-                task.error_msg = f"【合集解析成功】自动拆分为 {added_count} 个独立单集排队下载"
-                db.commit()
-                return # 终止当前处理，让 Worker 下一轮循环去逐个拿拆分出来的单集子任务！
-
-            # === 如果只是一般单视频，继续走标准流程 ===
             task.video_id = info.get('id', str(int(time.time())))
             task.title = info.get('title', 'Unknown Title')
             
             raw_uploader = info.get('uploader') or info.get('channel') or '未分类UP主'
             task.uploader = re.sub(r'[\\/:*?"<>|]', '_', raw_uploader).strip()
             db.commit()
-
+            logger.info(f"[{task.id}] 元数据解析完成: UP主={task.uploader}, 标题={task.title}")
     except Exception as e:
         task.status = "failed"
         task.error_msg = f"解析失败: {str(e)}"
         db.commit()
+        logger.error(f"[{task.id}] 解析阶段发生异常: {str(e)}")
         return
 
-    # ================= 第二阶段：实体单视频安全下载 =================
     target_dir = str(TEMP_DIR / task.video_id)
     os.makedirs(target_dir, exist_ok=True)
-    
+
     task.status = "downloading"
     task.error_msg = None
     db.commit()
+    logger.info(f"[{task.id}] 状态切换为: 下载中...")
     
     download_error = None
     try:
@@ -146,53 +139,59 @@ def process_task(task: models.Task, db: Session):
                     if now - last_update > 2.0 or pct >= 100:
                         task.progress = pct
                         db.commit()
+                        logger.info(f"[{task.id}] 下载进度: {pct}%")
                         last_update = now
-        
+
         opts = get_yt_dlp_options(task, target_dir)
         opts['progress_hooks'] = [yt_dlp_hook]
-        
+
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([task.url])
-            
+            logger.info(f"[{task.id}] 本地文件下载流程执行完毕。")
     except Exception as e:
         download_error = str(e)
-        
+        logger.error(f"[{task.id}] 下载层级抛出异常: {download_error}")
+
     check_local_files(target_dir, task)
     db.commit()
 
     if not task.video_downloaded and not task.video_uploaded:
         task.status = "failed"
-        task.error_msg = f"网络超时中断: {download_error}" if download_error else "视频未落地磁盘"
+        task.error_msg = download_error or "视频未下载"
         db.commit()
+        logger.error(f"[{task.id}] 校验失败：未检测到有效视频文件，任务终止。")
         return
 
-    # ================= 第三阶段：Rclone 即刻上云与销毁 =================
     task.status = "uploading"
     db.commit()
-    print(f"[{task.id}] 正在上云至 [{task.uploader}]...")
-    
+    logger.info(f"[{task.id}] 准备触发 Rclone，目标节点: [{RCLONE_REMOTE_NAME}/{task.uploader}]")
+
     try:
         rclone_setting = db.query(models.Setting).filter(models.Setting.key == "rclone_cookie").first()
         if not rclone_setting or not rclone_setting.value:
-            raise Exception("未找到 115 网盘配置！")
-            
-        with open(RCLONE_CONF_PATH, "w", encoding="utf-8") as f:
+            raise Exception("未找到 115 网盘配置！请先在系统配置页面保存 Cookie。")
+        
+        # 实时生成 Rclone 配置文件
+        with open(RCLONE_CONFIG_PATH, "w", encoding="utf-8") as f:
             f.write(rclone_setting.value)
-            
-        remote_path = f"{RCLONE_REMOTE}/{task.uploader}"
+
+        remote_path = f"{RCLONE_REMOTE_NAME}/{task.uploader}"
+        logger.info(f"[{task.id}] 正在执行搬运与销毁指令...")
+        
         result = subprocess.run(
             [
-                RCLONE_EXECUTABLE, "move", target_dir, remote_path, 
-                "--config", str(RCLONE_CONF_PATH), 
-                "--delete-empty-src-dirs",
-                "--transfers", "4" # 多并发线程加快附件与主视频的共同上传速度
+                RCLONE_EXECUTABLE_PATH, "move", target_dir, remote_path, 
+                "--config", RCLONE_CONFIG_PATH, 
+                "--delete-empty-src-dirs"
             ],
             capture_output=True, text=True
         )
-        
+
         if result.returncode != 0: 
             raise Exception(result.stderr)
-            
+        
+        logger.info(f"[{task.id}] Rclone 搬运成功，本地残留已被即时清理。")
+        
         if task.video_downloaded: task.video_uploaded = True
         if task.danmaku_downloaded: task.danmaku_uploaded = True
         if task.comment_downloaded: task.comment_uploaded = True
@@ -200,25 +199,28 @@ def process_task(task: models.Task, db: Session):
         task.video_downloaded = False
         task.danmaku_downloaded = False
         task.comment_downloaded = False
-        
+
         if download_error:
             task.status = "partial_completed"
-            task.error_msg = f"主体上云,但附件缺失: {download_error}"
+            task.error_msg = f"视频上云, 但附件缺失: {download_error}"
+            logger.warning(f"[{task.id}] 任务部分完成（附件有缺失）。")
         else:
             task.status = "completed"
             task.error_msg = None
-            task.progress = 100
+            logger.info(f"[{task.id}] 任务完美完成！生命周期闭环。")
             
     except Exception as e:
         task.status = "failed"
         task.error_msg = f"Rclone失败: {str(e)}"
+        logger.error(f"[{task.id}] Rclone 搬运阶段崩溃: {str(e)}")
     
     db.commit()
 
 def run_worker():
-    print("=========================================")
-    print(" Worker 启动！执行幽灵状态回收...")
+    logger.info("=========================================")
+    logger.info(" Worker 主循环启动！正在执行幽灵状态回收...")
     
+    # 状态机自我修复逻辑
     repair_db = SessionLocal()
     try:
         orphaned_tasks = repair_db.query(models.Task).filter(
@@ -227,27 +229,32 @@ def run_worker():
         for t in orphaned_tasks:
             t.status = "pending"
             t.error_msg = "检测到服务意外中断，任务已重置入队列"
+            # 还原之前的进度标志
+            t.video_downloaded = False
+            t.danmaku_downloaded = False
+            t.comment_downloaded = False
         if orphaned_tasks:
             repair_db.commit()
-            print(f" 已将 {len(orphaned_tasks)} 个卡死任务重置。")
+            logger.info(f" 已将 {len(orphaned_tasks)} 个卡死任务重置为等待状态 (Crash Recovery)。")
     except Exception as e:
-        pass
+        logger.error(f" 状态修复彻底失败: {e}")
     finally:
         repair_db.close()
 
-    print(" 监听任务中...")
-    print("=========================================")
+    logger.info(" Worker 进入深度监听轮询中...")
+    logger.info("=========================================")
     
     while True:
         db = SessionLocal()
         try:
             task = db.query(models.Task).filter(models.Task.status == "pending").first()
             if task: 
-                process_task(task, db)
+                 process_task(task, db)
             else: 
-                time.sleep(5)
+                 time.sleep(5)
         except Exception as e:
-            print(f"Worker Error: {traceback.format_exc()}")
+            logger.error(f"Worker 主引擎发生全局 Error:\n{traceback.format_exc()}")
+            # 严重错误时务必 rollback，防止会话对象被污染导致后续查询全崩
             db.rollback()
             time.sleep(5)
         finally:

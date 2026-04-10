@@ -11,21 +11,32 @@ from sqlalchemy.orm import Session
 import uvicorn
 from dotenv import load_dotenv
 
-# ================= 核心路径与环境解析 =================
-# 确保在 PyInstaller 打包环境中也能准确定位可执行文件所在目录
-if getattr(sys, "frozen", False):
-    BASE_DIR = Path(sys.executable).resolve().parent
-else:
-    BASE_DIR = Path(__file__).resolve().parent.parent
+# # ================= 核心路径与环境解析 =================
+# # 确保在 PyInstaller 打包环境中也能准确定位可执行文件所在目录
+# if getattr(sys, "frozen", False):
+#     BASE_DIR = Path(sys.executable).resolve().parent
+# else:
+#     BASE_DIR = Path(__file__).resolve().parent.parent
 
-# 强行切换工作目录，防范 nohup 启动时的路径漂移
+# 后端的工作目录绝对路径 
+BASE_DIR = Path("/www/wwwroot/bilibili-sync-app/backend")
+# 数据目录
+DATA_DIR = BASE_DIR / "data"
+DATABASE_URL = f"sqlite:///{DATA_DIR / 'app.db'}?timeout=5"
+# Rclone配置
+RCLONE_EXECUTABLE_PATH = BASE_DIR.parent / "rclone" / "rclone"
+RCLONE_CONFIG_PATH = DATA_DIR / ".rclone.conf"
+RCLONE_REMOTE_NAME = "115:/yt_downloads"
+
+
+# 切换工作目录
 os.chdir(BASE_DIR)
 
 # 加载 .env 环境变量
-load_dotenv(BASE_DIR / ".env")
+# load_dotenv(BASE_DIR / ".env")
 
 # 确保数据目录存在
-DATA_DIR = BASE_DIR / "data"
+# DATA_DIR = "/www/wwwroot/bilibili-sync-app/backend/data"
 DATA_DIR.mkdir(exist_ok=True)
 
 # 加载环境变量后，再导入数据库模型，防止底层引发相对路径错误
@@ -37,8 +48,8 @@ import schemas
 models.Base.metadata.create_all(bind=engine)
 
 # ================= 鉴权配置 =================
-# 动态从 .env 读取密钥，如果没填才降级为 123456
-SECRET_API_KEY = os.getenv("SECRET_API_KEY", "123456")
+# 动态从 .env 读取密钥
+SECRET_API_KEY = os.getenv("SECRET_API_KEY")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
 def verify_api_key(api_key: str = Security(api_key_header)):
@@ -121,6 +132,9 @@ def update_setting(setting_in: schemas.SettingUpdate, db: Session = Depends(get_
     if setting_in.key == "yt_cookie":
         yt_path = DATA_DIR / "yt_cookies.txt"
         with open(yt_path, "w", encoding="utf-8") as f:
+            f.write(setting_in.value)
+    if setting_in.key == "rclone_cookie":
+        with open(RCLONE_CONFIG_PATH, "w", encoding="utf-8") as f:
             f.write(setting_in.value)
     return {"message": "配置已更新"}
 
