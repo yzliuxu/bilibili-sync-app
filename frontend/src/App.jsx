@@ -4,7 +4,7 @@ import api from "./utils/api";
 import APP_CONFIG from "./config";
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(import.meta.env.DEV);
   const [inputKey, setInputKey] = useState("");
   const [loginError, setLoginError] = useState("");
 
@@ -39,6 +39,10 @@ function App() {
 
   // 初始化鉴权
   useEffect(() => {
+    if (import.meta.env.DEV) {
+      localStorage.setItem(APP_CONFIG.STORAGE_KEYS.API_KEY, 123456);
+      return;
+    }
     const savedKey = localStorage.getItem(APP_CONFIG.STORAGE_KEYS.API_KEY);
     if (savedKey) {
       (async () => {
@@ -158,7 +162,7 @@ function App() {
               type="password"
               value={inputKey}
               onChange={(e) => setInputKey(e.target.value)}
-              placeholder="请输入系统访问密码"
+              placeholder="请输入静态token"
               className="w-full border border-gray-300 rounded-md p-3 focus:ring-2 focus:ring-blue-500 outline-none"
               onKeyDown={(e) => e.key === "Enter" && verifyKey(inputKey)}
             />
@@ -232,7 +236,50 @@ function App() {
               <h2 className="text-lg font-semibold mb-4 text-gray-700">
                 当前任务队列
               </h2>
-              <TaskList tasks={tasks} onRetry={handleRetry} />
+              {/* <TaskList tasks={tasks} onRetry={handleRetry} /> */}
+              <TaskList
+                tasks={[
+                  // 构造一个完美的假报错任务
+                  {
+                    id: 9999,
+                    url: "https://www.bilibili.com/video/BV1xx411c7mD",
+                    title: "【测试】这是一个用来测试超长报错的假视频",
+                    uploader: "前端测试员",
+                    status: "failed",
+                    progress: 85,
+                    // 模拟一段真实的、带有换行符的 Python Traceback 报错
+                    error_msg: `Traceback (most recent call last):
+  File "worker.py", line 89, in process_taskvdfvdfjvndnvfdjfnvdjnvdjkfvndfjkvndvndkjvndfkvndkjvndjkvdfjvkndjvkvndfjkvdnfjkvdnjvkdfnjvndfvjkdfnvjkdvndfjkvndfjkvndjkvdfnvdkv
+  dfjvdnvjfvndjfvndjvndfjvndfjvdnvjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
+    ydl.download([task.url])
+  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
+    ydl.download([task.url])
+  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
+    ydl.download([task.url])
+  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
+    ydl.download([task.url])
+  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
+    ydl.download([task.url])
+  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
+    ydl.download([task.url])
+  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
+    ydl.download([task.url])
+  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
+    ydl.download([task.url])
+  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
+    ydl.download([task.url])
+  File "/usr/local/lib/python3.9/site-packages/yt_dlp/YoutubeDL.py", line 3398, in download
+    self.__download_wrapper(self.extract_info)(
+  File "/usr/local/lib/python3.9/site-packages/yt_dlp/YoutubeDL.py", line 3368, in wrapper
+    res = func(*args, **kwargs)
+yt_dlp.utils.DownloadError: ERROR: [bilibili] BV1xx411c7mD: 此视频需要大会员权限，或者您的 Cookie 已过期。请更新 Cookie 后重试！
+  (Hint: 确保您在系统设置页面填写了最新的 Netscape 格式 Cookie)`,
+                  },
+                  // 把原来的真实任务接在后面
+                  ...tasks,
+                ]}
+                onRetry={handleRetry}
+              />
             </div>
           </div>
         )}

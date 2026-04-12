@@ -1,7 +1,8 @@
 import TaskItem from './TaskItem';
 
 export default function TaskList({ tasks, onRetry }) {
-  if (!tasks || tasks.length === 0) {
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
+  if (safeTasks.length === 0) {
     return (
       <div className="text-center text-gray-500 py-10 border-2 border-dashed border-gray-200 rounded-md">
         暂无任务，快去上方添加吧！

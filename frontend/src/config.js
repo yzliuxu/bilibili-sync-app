@@ -37,5 +37,5 @@ const APP_CONFIG = {
     RETRY_FAIL: '重试触发失败',
   },
 };
-
+  TITLE: '流浪B站计划'
 export default APP_CONFIG;
