@@ -7,6 +7,7 @@ import re
 import logging
 from pathlib import Path
 import yt_dlp
+import urllib.request
 from sqlalchemy.orm import Session
 
 import main
@@ -59,7 +60,14 @@ TEMP_DIR = DATA_DIR / "temp_downloads"
 DATA_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
 # ============================================
-
+def notify_server():
+    """向主进程发送更新信号，采用极短超时防止阻塞下载流"""
+    try:
+        req = urllib.request.Request("http://127.0.0.1:8000/api/internal/notify-tasks", method="POST")
+        urllib.request.urlopen(req, timeout=0.5)
+    except Exception:
+        pass # 无论主进程是否死掉，绝不能影响 worker 自身的下载进程
+    
 def get_yt_dlp_options(task: models.Task, target_dir: str):
     if YT_COOKIES_PATH.exists():
         logger.info(f"[{task.id}] 检测到 Bilibili Cookies 文件，下载选项将启用 Cookies 支持。")
@@ -134,6 +142,7 @@ def process_task(task: models.Task, db: Session):
                 task.title = f"[已展开合集] {info.get('title', '未知名称')}"
                 task.progress = 100
                 db.commit()
+                notify_server()
                 print(f"[{task.id}] 合集已成功拆分为独立任务。")
                 return # 结束当前合集任务的处理，转向下一个独立视频任务
             
@@ -144,11 +153,13 @@ def process_task(task: models.Task, db: Session):
             raw_uploader = info.get('uploader') or info.get('channel') or '未分类UP主'
             task.uploader = re.sub(r'[\\/:*?"<>|]', '_', raw_uploader).strip()
             db.commit()
+            notify_server()
 
     except Exception as e:
         task.status = "failed"
         task.error_msg = f"解析失败: {str(e)}"
         db.commit()
+        notify_server()
         return
 
     # ... 后续的下载和上传逻辑保持不变 ...
@@ -159,6 +170,7 @@ def process_task(task: models.Task, db: Session):
     task.status = "downloading"
     task.error_msg = None
     db.commit()
+    notify_server()
     logger.info(f"[{task.id}] 状态切换为: 下载中...")
     
     download_error = None
@@ -171,9 +183,10 @@ def process_task(task: models.Task, db: Session):
                 if total and total > 0:
                     pct = int(d.get('downloaded_bytes', 0) / total * 100)
                     now = time.time()
-                    if now - last_update > 2.0 or pct >= 100:
+                    if now - last_update > 1.0 or pct >= 100:
                         task.progress = pct
                         db.commit()
+                        notify_server()
                         logger.info(f"[{task.id}] 下载进度: {pct}%")
                         last_update = now
 
@@ -194,11 +207,13 @@ def process_task(task: models.Task, db: Session):
         task.status = "failed"
         task.error_msg = download_error or "视频未下载"
         db.commit()
+        notify_server()
         logger.error(f"[{task.id}] 校验失败：未检测到有效视频文件，任务终止。")
         return
 
     task.status = "uploading"
     db.commit()
+    notify_server()
     logger.info(f"[{task.id}] 准备触发 Rclone，目标节点: [{RCLONE_REMOTE_NAME}/{task.uploader}]")
 
     try:
@@ -250,6 +265,7 @@ def process_task(task: models.Task, db: Session):
         logger.error(f"[{task.id}] Rclone 搬运阶段崩溃: {str(e)}")
     
     db.commit()
+    notify_server()
 
 def run_worker():
     logger.info("=========================================")

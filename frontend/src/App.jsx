@@ -14,15 +14,15 @@ function App() {
   const [ytCookie, setYtCookie] = useState("");
   const [rcloneCookie, setRcloneCookie] = useState("");
 
-  const fetchTasks = async () => {
-    try {
-      const res = await api.get(APP_CONFIG.API.TASKS);
-      setTasks(res.data);
-    } catch (error) {
-      alert(APP_CONFIG.MESSAGE.FETCH_TASKS_FAIL);
-      console.error("Failed to fetch tasks", error);
-    }
-  };
+  // const fetchTasks = async () => {
+  //   try {
+  //     const res = await api.get(APP_CONFIG.API.TASKS);
+  //     setTasks(res.data);
+  //   } catch (error) {
+  //     alert(APP_CONFIG.MESSAGE.FETCH_TASKS_FAIL);
+  //     console.error("Failed to fetch tasks", error);
+  //   }
+  // };
 
   const verifyKey = async (key) => {
     try {
@@ -61,18 +61,58 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // if (isAuthenticated && activeTab === APP_CONFIG.TABS.TASKS) {
+    //   fetchTasks();
+    //   const timer = setInterval(fetchTasks, 5000);
+    //   return () => clearInterval(timer); // 组件卸载时清除定时器
+    // }
+    let ws = null;
     if (isAuthenticated && activeTab === APP_CONFIG.TABS.TASKS) {
-      fetchTasks();
-      const timer = setInterval(fetchTasks, 5000);
-      return () => clearInterval(timer); // 组件卸载时清除定时器
+      const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const wsUrl = import.meta.env.DEV
+        ? "ws://localhost:8000/api/ws/tasks"
+        : `${wsProtocol}://${window.location.host}/api/ws/tasks`;
+
+      // 建立 WebSocket 连接
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        console.log("WebSocket 连接已建立，进入响应式模式 ⚡");
+      };
+
+      // 核心：每次后端主动推送数据时，直接更新状态
+      ws.onmessage = (event) => {
+        try {
+          const freshTasks = JSON.parse(event.data);
+          setTasks(freshTasks);
+        } catch (err) {
+          console.error("WebSocket 数据解析失败:", err);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error(
+          "WebSocket 连接错误，如果持续失败，请检查跨域配置",
+          error,
+        );
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket 连接已断开");
+      };
     }
+    // 组件卸载或切换标签时，优雅地销毁长连接，防止内存泄漏
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
   }, [isAuthenticated, activeTab]);
   const handleAddTask = async () => {
     if (!urlInput) return;
     try {
       await api.post(APP_CONFIG.API.TASKS, { url: urlInput });
       setUrlInput("");
-      await fetchTasks(); // 刷新任务列表
+      // await fetchTasks(); // 刷新任务列表
       // setTasks(res.data);
     } catch (error) {
       alert(APP_CONFIG.MESSAGE.ADD_TASK_FAIL);
@@ -237,8 +277,8 @@ function App() {
               <h2 className="text-lg font-semibold mb-4 text-gray-700">
                 当前任务队列
               </h2>
-              {/* <TaskList tasks={tasks} onRetry={handleRetry} /> */}
-              <TaskList
+              <TaskList tasks={tasks} onRetry={handleRetry} />
+              {/* <TaskList
                 tasks={[
                   // 构造一个完美的假报错任务
                   {
@@ -280,7 +320,7 @@ yt_dlp.utils.DownloadError: ERROR: [bilibili] BV1xx411c7mD: 此视频需要大�
                   ...tasks,
                 ]}
                 onRetry={handleRetry}
-              />
+              /> */}
             </div>
           </div>
         )}
