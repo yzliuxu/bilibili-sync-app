@@ -18,7 +18,7 @@ function App() {
     try {
       const res = await api.get(APP_CONFIG.API.TASKS);
       setTasks(res.data);
-    } catch {
+    } catch (error) {
       alert(APP_CONFIG.MESSAGE.FETCH_TASKS_FAIL);
       console.error("Failed to fetch tasks", error);
     }
@@ -72,10 +72,11 @@ function App() {
     try {
       await api.post(APP_CONFIG.API.TASKS, { url: urlInput });
       setUrlInput("");
-      fetchTasks(); // 刷新任务列表
-      setTasks(res.data);
-    } catch {
+      await fetchTasks(); // 刷新任务列表
+      // setTasks(res.data);
+    } catch (error) {
       alert(APP_CONFIG.MESSAGE.ADD_TASK_FAIL);
+      console.error("添加任务失败", error.response || error.message);
     }
   };
 
