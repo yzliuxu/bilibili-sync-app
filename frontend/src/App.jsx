@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import TaskList from "./components/TaskList";
 import api from "./utils/api";
 import APP_CONFIG from "./config";
+import { validateNetscapeCookie, formatRcloneConfig } from "./utils/format";
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(import.meta.env.DEV);
@@ -128,30 +129,6 @@ function App() {
     }
   };
 
-  // ==========================================
-  // 【新增核心逻辑】：提取 Cookie 并格式化为 rclone 节点配置
-  // ==========================================
-  const formatRcloneConfig = (rawCookie) => {
-    const extract = (key) => {
-      const match = rawCookie.match(new RegExp(`(?:^|;\\s*)${key}=([^;]*)`));
-      return match ? match[1] : "";
-    };
-
-    const values = APP_CONFIG.RCLONE.COOKIE_KEYS.reduce((acc, key) => {
-      acc[key] = extract(key);
-      return acc;
-    }, {});
-
-    const hasAnyValue = APP_CONFIG.RCLONE.COOKIE_KEYS.some(
-      (key) => values[key],
-    );
-    if (!hasAnyValue) {
-      return null;
-    }
-
-    const { uid, cid, seid, kid } = values;
-    return APP_CONFIG.RCLONE.TEMPLATE(uid, cid, seid, kid);
-  };
 
   const handleSaveSettings = async () => {
     try {
