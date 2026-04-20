@@ -157,9 +157,14 @@ function App() {
     try {
       // 1. 保存 yt-dlp cookie
       if (ytCookie) {
+        const validYtCookie = validateNetscapeCookie(ytCookie);
+        if (!validYtCookie) {
+          alert("yt-dlp Cookie 格式不正确，请确保提供的是 Netscape 格式！");
+          return;
+        }
         await api.post(APP_CONFIG.API.SETTING, {
           key: "yt_cookie",
-          value: ytCookie,
+          value: validYtCookie,
         });
       }
 
@@ -168,20 +173,15 @@ function App() {
         // 判断用户是不是已经填了格式化好的配置（防止二次提取失败）
         let finalConfig = rcloneCookie;
 
-        if (!rcloneCookie.startsWith(APP_CONFIG.RCLONE.PREFIX)) {
-          const parsedConfig = formatRcloneConfig(rcloneCookie);
-          if (!parsedConfig) {
-            alert(APP_CONFIG.MESSAGE.COOKIE_EXTRACT_FAIL);
-            return;
-          }
-          finalConfig = parsedConfig;
-          // 将输入框的内容也替换成格式化后的，让用户能直观看到结果
-          setRcloneCookie(finalConfig);
+        const finalRcloneConfig = formatRcloneConfig(rcloneCookie);
+        if (!finalRcloneConfig) {
+          alert("无法提取 115 凭证，请检查粘贴的 Cookie 是否完整！");
+          return;
         }
 
         await api.post(APP_CONFIG.API.SETTING, {
           key: "rclone_cookie",
-          value: finalConfig,
+          value: finalRcloneConfig,
         });
       }
 
