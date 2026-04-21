@@ -97,7 +97,7 @@ export default function TaskItem({ task, onRetry }) {
       >
         <div className="flex-1 w-full overflow-hidden">
           <div className="flex items-center space-x-2">
-            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 text-xs rounded-full font-medium">
+            <span className="shrink-0 px-2 py-0.5 bg-gray-200 text-gray-700 text-xs rounded-full font-medium">
               {task.uploader || "解析中"}
             </span>
             <h3

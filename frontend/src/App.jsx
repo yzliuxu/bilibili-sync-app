@@ -15,15 +15,7 @@ function App() {
   const [ytCookie, setYtCookie] = useState("");
   const [rcloneCookie, setRcloneCookie] = useState("");
 
-  // const fetchTasks = async () => {
-  //   try {
-  //     const res = await api.get(APP_CONFIG.API.TASKS);
-  //     setTasks(res.data);
-  //   } catch (error) {
-  //     alert(APP_CONFIG.MESSAGE.FETCH_TASKS_FAIL);
-  //     console.error("Failed to fetch tasks", error);
-  //   }
-  // };
+  const [ststusfilter, setStatusFilter] = useState("all");
 
   const verifyKey = async (key) => {
     try {
@@ -62,11 +54,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // if (isAuthenticated && activeTab === APP_CONFIG.TABS.TASKS) {
-    //   fetchTasks();
-    //   const timer = setInterval(fetchTasks, 5000);
-    //   return () => clearInterval(timer); // 组件卸载时清除定时器
-    // }
     let ws = null;
     if (isAuthenticated && activeTab === APP_CONFIG.TABS.TASKS) {
       const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -129,7 +116,6 @@ function App() {
     }
   };
 
-
   const handleSaveSettings = async () => {
     try {
       // 1. 保存 yt-dlp cookie
@@ -168,10 +154,15 @@ function App() {
     }
   };
 
+  const filteredTasks = tasks.filter((task) => {
+    ststusfilter === "all" ? true : task.status === ststusfilter;
+  });
+
+  // 未登录状态返回
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 sm:p-6">
+        <div className="bg-white p-6 rounded-lg shadow-md w-full max-w-md">
           <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">
             流浪B站计划
           </h1>
@@ -199,9 +190,9 @@ function App() {
 
   return (
     <div className="min-h-screen max-w-4xl mx-auto p-6 font-sans">
-      <header className="flex justify-between items-center mb-8 bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+      <header className="flex flex-col sm:flex-row gap-4 justify-between items-center mb-8 bg-white p-4 rounded-lg shadow-sm border border-gray-100">
         <h1 className="text-2xl font-bold text-gray-800">流浪B站计划</h1>
-        <div className="space-x-4">
+        <div className="flex gap-2 justify-center flex-wrap">
           <button
             onClick={() => setActiveTab(APP_CONFIG.TABS.TASKS)}
             className={`px-4 py-2 rounded-md transition-colors ${activeTab === APP_CONFIG.TABS.TASKS ? "bg-blue-600 text-white shadow" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
@@ -233,7 +224,7 @@ function App() {
               <h2 className="text-lg font-semibold mb-4 text-gray-700">
                 添加新下载任务
               </h2>
-              <div className="flex space-x-2">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <input
                   type="text"
                   value={urlInput}
@@ -250,55 +241,23 @@ function App() {
                 </button>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-              <h2 className="text-lg font-semibold mb-4 text-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-gray-700">
                 当前任务队列
               </h2>
-              <TaskList tasks={tasks} onRetry={handleRetry} />
-              {/* <TaskList
-                tasks={[
-                  // 构造一个完美的假报错任务
-                  {
-                    id: 9999,
-                    url: "https://www.bilibili.com/video/BV1xx411c7mD",
-                    title: "【测试】这是一个用来测试超长报错的假视频",
-                    uploader: "前端测试员",
-                    status: "failed",
-                    progress: 85,
-                    // 模拟一段真实的、带有换行符的 Python Traceback 报错
-                    error_msg: `Traceback (most recent call last):
-  File "worker.py", line 89, in process_taskvdfvdfjvndnvfdjfnvdjnvdjkfvndfjkvndvndkjvndfkvndkjvndjkvdfjvkndjvkvndfjkvdnfjkvdnjvkdfnjvndfvjkdfnvjkdvndfjkvndfjkvndjkvdfnvdkv
-  dfjvdnvjfvndjfvndjvndfjvndfjvdnvjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
-    ydl.download([task.url])
-  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
-    ydl.download([task.url])
-  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
-    ydl.download([task.url])
-  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
-    ydl.download([task.url])
-  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
-    ydl.download([task.url])
-  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
-    ydl.download([task.url])
-  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
-    ydl.download([task.url])
-  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
-    ydl.download([task.url])
-  File "/usr/local/lib/python3.9/sitjdfnjvdnvjdnvdjvndfjvndfjvndfjvbdfjvbdfjvbfe8orfherhevjnevbelv
-    ydl.download([task.url])
-  File "/usr/local/lib/python3.9/site-packages/yt_dlp/YoutubeDL.py", line 3398, in download
-    self.__download_wrapper(self.extract_info)(
-  File "/usr/local/lib/python3.9/site-packages/yt_dlp/YoutubeDL.py", line 3368, in wrapper
-    res = func(*args, **kwargs)
-yt_dlp.utils.DownloadError: ERROR: [bilibili] BV1xx411c7mD: 此视频需要大会员权限，或者您的 Cookie 已过期。请更新 Cookie 后重试！
-  (Hint: 确保您在系统设置页面填写了最新的 Netscape 格式 Cookie)`,
-                  },
-                  // 把原来的真实任务接在后面
-                  ...tasks,
-                ]}
-                onRetry={handleRetry}
-              /> */}
+              <select
+                value={ststusfilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="border border-gray-300 rounded-md p-1.5 focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="all">全部状态</option>
+                <option value="pending">待处理</option>
+                <option value="downloading">下载中</option>
+                <option value="completed">已完成</option>
+                <option value="failed">失败</option>
+              </select>
             </div>
+            <TaskList tasks={filteredTasks} onRetry={handleRetry} />
           </div>
         )}
 
