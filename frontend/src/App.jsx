@@ -8,14 +8,13 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(import.meta.env.DEV);
   const [inputKey, setInputKey] = useState("");
   const [loginError, setLoginError] = useState("");
-
   const [activeTab, setActiveTab] = useState(APP_CONFIG.TABS.TASKS);
   const [urlInput, setUrlInput] = useState("");
   const [tasks, setTasks] = useState([]);
   const [ytCookie, setYtCookie] = useState("");
   const [rcloneCookie, setRcloneCookie] = useState("");
 
-  const [ststusfilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const verifyKey = async (key) => {
     try {
@@ -56,6 +55,20 @@ function App() {
   useEffect(() => {
     let ws = null;
     if (isAuthenticated && activeTab === APP_CONFIG.TABS.TASKS) {
+      // 1. 【防御性设计】主动拉取初始全量数据
+      // 确保无论 WebSocket 状态如何，页面渲染瞬间都能拿到真实数据
+      const initFetch = async () => {
+        try {
+          const res = await api.get(APP_CONFIG.API.TASKS);
+          console.log("RESTful 初始化数据拉取成功, 共有任务:", res.data.length);
+          setTasks(res.data);
+        } catch (err) {
+          console.error("RESTful 初始化数据拉取失败:", err);
+        }
+      };
+      initFetch();
+
+      // 2. 【响应式设计】建立长连接监听后续状态流转
       const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
       const wsUrl = import.meta.env.DEV
         ? "ws://localhost:8000/api/ws/tasks"
@@ -63,11 +76,12 @@ function App() {
 
       // 建立 WebSocket 连接
       ws = new WebSocket(wsUrl);
+
       ws.onopen = () => {
         console.log("WebSocket 连接已建立，进入响应式模式 ⚡");
       };
 
-      // 核心：每次后端主动推送数据时，直接更新状态
+      // 核心：每次后端主动推送数据时，覆盖更新状态
       ws.onmessage = (event) => {
         try {
           const freshTasks = JSON.parse(event.data);
@@ -88,6 +102,7 @@ function App() {
         console.log("WebSocket 连接已断开");
       };
     }
+
     // 组件卸载或切换标签时，优雅地销毁长连接，防止内存泄漏
     return () => {
       if (ws) {
@@ -153,11 +168,13 @@ function App() {
       alert(APP_CONFIG.MESSAGE.SAVE_FAIL);
     }
   };
-
-  const filteredTasks = tasks.filter((task) => {
-    ststusfilter === "all" ? true : task.status === ststusfilter;
+  const rawtasks = tasks || [];
+  const filteredTasks = rawtasks.filter((task) => {
+    if (!task) return false;
+    if (!statusFilter || statusFilter === "all") return true;
+    return task.status === statusFilter;
   });
-
+  console.log("最终交给组件渲染的数据数量:", filteredTasks.length);
   // 未登录状态返回
   if (!isAuthenticated) {
     return (
@@ -246,7 +263,7 @@ function App() {
                 当前任务队列
               </h2>
               <select
-                value={ststusfilter}
+                value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="border border-gray-300 rounded-md p-1.5 focus:ring-2 focus:ring-blue-500 outline-none"
               >

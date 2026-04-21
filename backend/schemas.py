@@ -2,20 +2,28 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
-# 前端发来添加任务的请求格式
-class TaskCreate(BaseModel):
+
+class TaskBase(BaseModel):
     url: str
 
+
+# 前端发来添加任务的请求格式
+class TaskCreate(TaskBase):
+    pass
+
+
 # 后端返回给前端的任务列表格式
-class TaskResponse(BaseModel):
+class TaskResponse(TaskBase):
     id: int
     video_id: Optional[str] = None
     url: str
     title: Optional[str] = None
     uploader: Optional[str] = "未分类"
+    playlist_name: Optional[str] = None
+
     status: str
     progress: int = 0
-    
+
     # 细分状态也传给前端，以后可以在页面上做更详细的展示
     video_downloaded: bool
     danmaku_downloaded: bool
@@ -30,6 +38,7 @@ class TaskResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 # 前端发来更新 Cookie 的请求格式
 class SettingUpdate(BaseModel):

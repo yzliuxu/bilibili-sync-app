@@ -14,7 +14,7 @@ class Task(Base):
     # uploader = Column(String, nullable=True, default="未分类") # UP主名称
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    video_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    video_id: Mapped[str | None] = mapped_column(String, unique=True, index=True)
     url: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
     uploader: Mapped[str] = mapped_column(
