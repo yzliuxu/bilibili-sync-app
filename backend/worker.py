@@ -130,15 +130,19 @@ def process_task(task: models.Task, db: Session):
             "quiet": True,
             "ignoreerrors": True,
         }
-        with yt_dlp.YoutubeDL(ydl_meta_opts) as ydl:
+        with yt_dlp.YoutubeDL(ydl_meta_opts) as ydl: # type: ignore
             info = ydl.extract_info(task.url, download=False)
 
             # === 核心逻辑：处理合集/播放列表/UP主主页 ===
             # 如果发现 entries 字段且类型是 playlist，说明是一个合集
             if "entries" in info and info.get("_type") == "playlist":
                 entries = list(info["entries"])
+
+                raw_playlist_title = info.get("title", "未知合集")
+                safe_playlist_title=re.sub(r'[\\/:*?"<>|]', "_", raw_playlist_title).strip()
+
                 print(
-                    f"[{task.id}] 检测到合集/列表，包含 {len(entries)} 个视频，正在批量展开入队..."
+                    f"[{task.id}] 检测到合集/列表，[{safe_playlist_title}]，包含 {len(entries)} 个视频..."
                 )
 
                 for entry in entries:
@@ -165,6 +169,7 @@ def process_task(task: models.Task, db: Session):
                             uploader=info.get("uploader")
                             or info.get("title")
                             or "未分类",
+                            playlist_name=safe_playlist_title,
                         )
                         db.add(new_task)
 
@@ -193,10 +198,16 @@ def process_task(task: models.Task, db: Session):
         notify_server()
         return
 
-    # ... 后续的下载和上传逻辑保持不变 ...
     # 以Up主的名字为子目录进行下载，确保不同UP主的视频文件不会混淆在一起
-    target_dir = str(TEMP_DIR / task.uploader)
-    os.makedirs(target_dir, exist_ok=True)
+
+    if task.playlist_name:
+        # 合集视频放在 UP 主目录下的合集子目录里
+        target_dir = str(TEMP_DIR / task.uploader / task.playlist_name)
+        remote_path = f"{RCLONE_REMOTE_NAME}/{task.uploader}/{task.playlist_name}"
+    else:
+        # 单视频直接放在 UP 主目录下
+        target_dir = str(TEMP_DIR / task.uploader)
+        os.makedirs(target_dir, exist_ok=True)
 
     task.status = "downloading"
     task.error_msg = None
@@ -235,12 +246,12 @@ def process_task(task: models.Task, db: Session):
                 task.progress = 100
                 db.commit()
                 notify_server()
-                logger.info(f"[{task.id}] 当前流媒体文件下载完成 (100%)")
+                logger.info(f"[{task.id}] 当前文件下载完成 (100%)")
 
         opts = get_yt_dlp_options(task, target_dir)
         opts["progress_hooks"] = [yt_dlp_hook]
 
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        with yt_dlp.YoutubeDL(opts) as ydl: # type: ignore
             ydl.download([task.url])
             logger.info(f"[{task.id}] 本地文件下载流程执行完毕。")
     except Exception as e:
