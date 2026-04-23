@@ -203,7 +203,7 @@ def process_task(task: models.Task, db: Session):
     if task.playlist_name:
         # 合集视频放在 UP 主目录下的合集子目录里
         target_dir = str(TEMP_DIR / task.uploader / task.playlist_name)
-        remote_path = f"{RCLONE_REMOTE_NAME}/{task.uploader}/{task.playlist_name}"
+        os.makedirs(target_dir, exist_ok=True)
     else:
         # 单视频直接放在 UP 主目录下
         target_dir = str(TEMP_DIR / task.uploader)
@@ -289,7 +289,10 @@ def process_task(task: models.Task, db: Session):
         with open(RCLONE_CONFIG_PATH, "w", encoding="utf-8") as f:
             f.write(rclone_setting.value)
 
-        remote_path = f"{RCLONE_REMOTE_NAME}/{task.uploader}"
+        if task.playlist_name:
+            remote_path = f"{RCLONE_REMOTE_NAME}/{task.uploader}/{task.playlist_name}"
+        else:
+            remote_path = f"{RCLONE_REMOTE_NAME}/{task.uploader}"
         logger.info(f"[{task.id}] 正在执行搬运与销毁指令...")
 
         result = subprocess.run(
