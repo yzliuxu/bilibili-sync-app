@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import api from "../utils/api";
 import APP_CONFIG from "../config";
+
+const STATUS_ORDER = ['pending', 'downloading', 'uploading', 'completed', 'partial_completed', 'failed'];
 
 /**
  * 【开发模式】生成模拟任务数据
@@ -65,11 +67,13 @@ const generateMockTasks = () => {
  * 自定义Hook: 管理任务列表和WebSocket连接
  * @param {boolean} isAuthenticated - 是否已认证
  * @param {boolean} isActive - 是否在任务标签页中
- * @returns {Object} { tasks, statusFilter, setStatusFilter, filteredTasks }
+ * @returns {Object} { tasks, availableStatuses, selectedStatuses, setSelectedStatuses, filteredTasks }
  */
 export const useTasks = (isAuthenticated, isActive) => {
   const [tasks, setTasks] = useState(import.meta.env.DEV ? generateMockTasks() : []);
-  const [statusFilter, setStatusFilter] = useState("all");
+  // null = default mode: show all except 'pending'
+  // Set  = explicit mode: show only the statuses in the Set
+  const [selectedStatuses, setSelectedStatuses] = useState(null);
 
   useEffect(() => {
     let ws = null;
@@ -133,19 +137,30 @@ export const useTasks = (isAuthenticated, isActive) => {
     };
   }, [isAuthenticated, isActive]);
 
+  // 从实际数据中提取所有出现过的状态，按预定义顺序排列
+  const availableStatuses = useMemo(() => {
+    const present = new Set((tasks || []).map(t => t?.status).filter(Boolean));
+    return STATUS_ORDER.filter(s => present.has(s));
+  }, [tasks]);
+
+  // 当 selectedStatuses 为 null 时，默认展示除 pending 以外的所有状态
+  const effectiveFilter = selectedStatuses === null
+    ? new Set(availableStatuses.filter(s => s !== 'pending'))
+    : selectedStatuses;
+
   const rawtasks = tasks || [];
   const filteredTasks = rawtasks.filter((task) => {
     if (!task) return false;
-    if (!statusFilter || statusFilter === "all") return true;
-    return task.status === statusFilter;
+    return effectiveFilter.has(task.status);
   });
 
   console.log("最终交给组件渲染的数据数量:", filteredTasks.length);
 
   return {
     tasks,
-    statusFilter,
-    setStatusFilter,
+    availableStatuses,
+    selectedStatuses,      // null | Set — null 表示"默认模式"
+    setSelectedStatuses,
     filteredTasks,
   };
 };

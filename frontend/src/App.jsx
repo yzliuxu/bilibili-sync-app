@@ -1,9 +1,28 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import TaskList from "./components/TaskList";
 import APP_CONFIG from "./config";
 import { useAuth } from "./hooks/useAuth";
 import { useTasks } from "./hooks/useTasks";
 import { addTask, retryTask, saveAuthConfig } from "./utils/taskHandler";
+
+const STATUS_DISPLAY = {
+  pending:           { text: '待处理 ⏳' },
+  downloading:       { text: '下载中 ⬇️' },
+  uploading:         { text: '上传中 ☁️' },
+  completed:         { text: '已完成 ✅' },
+  failed:            { text: '失败 ❌' },
+  partial_completed: { text: '部分完成 ⚠️' },
+};
+
+// Active (selected) pill color per status — matches badge colors
+const STATUS_ACTIVE_CLASS = {
+  pending:           'bg-gray-100 text-gray-700 border-gray-400',
+  downloading:       'bg-blue-100 text-blue-700 border-blue-400',
+  uploading:         'bg-purple-100 text-purple-700 border-purple-400',
+  completed:         'bg-green-100 text-green-700 border-green-400',
+  failed:            'bg-red-100 text-red-700 border-red-400',
+  partial_completed: 'bg-yellow-100 text-yellow-700 border-yellow-400',
+};
 
 function App() {
   const { isAuthenticated, verifyKey, loginError, logout } = useAuth();
@@ -13,10 +32,37 @@ function App() {
   const [ytCookie, setYtCookie] = useState("");
   const [rcloneCookie, setRcloneCookie] = useState("");
 
-  const { filteredTasks, statusFilter, setStatusFilter } = useTasks(
+  const { tasks, filteredTasks, availableStatuses, selectedStatuses, setSelectedStatuses } = useTasks(
     isAuthenticated,
     activeTab === APP_CONFIG.TABS.TASKS
   );
+
+  // Per-status task count (from unfiltered data)
+  const statusCounts = useMemo(() =>
+    (tasks || []).reduce((acc, t) => {
+      if (t?.status) acc[t.status] = (acc[t.status] || 0) + 1;
+      return acc;
+    }, {}),
+  [tasks]);
+
+  // Is a given status currently selected?
+  const isSelected = (status) => {
+    if (selectedStatuses === null) return status !== 'pending';
+    return selectedStatuses.has(status);
+  };
+
+  // Toggle one status pill
+  const toggleStatus = (status) => {
+    const current = selectedStatuses === null
+      ? new Set(availableStatuses.filter(s => s !== 'pending'))
+      : new Set(selectedStatuses);
+    if (current.has(status)) {
+      current.delete(status);
+    } else {
+      current.add(status);
+    }
+    setSelectedStatuses(current);
+  };
 
   const handleAddTask = () => {
     addTask(
@@ -134,22 +180,48 @@ function App() {
                 </button>
               </div>
             </div>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-gray-700">
-                当前任务队列
-              </h2>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="border border-gray-300 rounded-md p-1.5 focus:ring-2 focus:ring-blue-500 outline-none"
-              >
-                <option value="all">全部状态</option>
-                <option value="pending">待处理</option>
-                <option value="downloading">下载中</option>
-                <option value="completed">已完成</option>
-                <option value="failed">失败</option>
-              </select>
+
+            <div className="flex flex-col gap-3 mb-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-semibold text-gray-700">
+                  当前任务队列
+                </h2>
+                <span className="text-sm text-gray-400">
+                  显示 {filteredTasks.length} / {(tasks || []).length} 个任务
+                </span>
+              </div>
+
+              {availableStatuses.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-gray-500 font-medium whitespace-nowrap">筛选：</span>
+                  {availableStatuses.map(status => (
+                    <button
+                      key={status}
+                      onClick={() => toggleStatus(status)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-colors cursor-pointer ${
+                        isSelected(status)
+                          ? (STATUS_ACTIVE_CLASS[status] || 'bg-blue-100 text-blue-700 border-blue-400')
+                          : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400 hover:text-gray-600'
+                      }`}
+                    >
+                      {STATUS_DISPLAY[status]?.text || status}
+                      <span className="opacity-70 font-normal">
+                        {statusCounts[status] || 0}
+                      </span>
+                    </button>
+                  ))}
+                  {selectedStatuses !== null && (
+                    <button
+                      onClick={() => setSelectedStatuses(null)}
+                      className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 ml-1"
+                    >
+                      重置
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
+
             <TaskList tasks={filteredTasks} onRetry={handleRetry} />
           </div>
         )}
