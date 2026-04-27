@@ -156,8 +156,13 @@ def process_task(task: models.Task, db: Session):
                     is_multi_part = True
                     task.video_id = main_bv_id
                     task.title = info.get("title", task.title or "Unknown Title")
-                    raw_uploader = info.get("uploader") or info.get("channel") or "未分类UP主"
-                    task.uploader = re.sub(r'[\\/:*?"<>|]', "_", raw_uploader).strip()
+                    extracted_uploader = info.get("uploader") or info.get("channel")
+                    if extracted_uploader:
+                        task.uploader = re.sub(r'[\\/:*?"<>|]', "_", extracted_uploader).strip()
+                    elif not task.uploader or "未分类" in task.uploader:
+                        task.uploader = "未分类UP主"
+                    # 若没抓到且 task.uploader 已有正确值，则保持原样
+                    
                     db.commit()
                     notify_server()
                     logger.info(
@@ -216,8 +221,14 @@ def process_task(task: models.Task, db: Session):
                 # === 单视频 ===
                 task.video_id = info.get("id", str(int(time.time())))
                 task.title = info.get("title", "Unknown Title")
-                raw_uploader = info.get("uploader") or info.get("channel") or "未分类UP主"
-                task.uploader = re.sub(r'[\\/:*?"<>|]', "_", raw_uploader).strip()
+                # 修复：防止重试时 UP 主信息被覆盖
+                extracted_uploader = info.get("uploader") or info.get("channel")
+                if extracted_uploader:
+                    task.uploader = re.sub(r'[\\/:*?"<>|]', "_", extracted_uploader).strip()
+                elif not task.uploader or "未分类" in task.uploader:
+                    task.uploader = "未分类UP主"
+                # 若没抓到且 task.uploader 已有正确值，则保持原样
+
                 db.commit()
                 notify_server()
 
