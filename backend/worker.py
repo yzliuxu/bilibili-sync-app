@@ -5,6 +5,7 @@ import subprocess
 import traceback
 import re
 import logging
+import shutil
 from pathlib import Path
 import yt_dlp
 import urllib.request
@@ -27,7 +28,7 @@ LOG_FILE_PATH = "/www/wwwroot/bilibili-sync-app/backend/worker_engine.log"
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
-    format="[%(asctime)s] [%(levelname)s] - %(message)s",
+    format="[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.FileHandler(
@@ -75,7 +76,7 @@ def notify_server():
             req.add_header("X-API-Key", api_key)
         urllib.request.urlopen(req, timeout=0.5)
     except Exception as e:
-        logger.error(f"通知主进程失败: {e}")
+        logger.error(f"通知主进程失败 [{type(e).__name__}]: {e}（非致命，下载主流程不受影响）")
         pass  # 无论主进程是否死掉，绝不能影响 worker 自身的下载进程
 
 
@@ -88,10 +89,10 @@ def get_yt_dlp_options(task: models.Task, target_dir: str):
         logger.info(
             f"[{task.id}] 未找到 Bilibili Cookies 文件，下载选项将以匿名模式执行，可能无法下载受限内容。"
         )
-    # FFMPEG_BINARY_PATH 环境变量允许用户指定自定义的 ffmpeg 可执行文件路径，增强兼容性和性能。如果未设置，则默认使用系统环境中的 ffmpeg。
-    FFMPEG_PATH = os.getenv("FFMPEG_BINARY_PATH", "ffmpeg")
+    _ffmpeg_env = os.getenv("FFMPEG_BINARY_PATH")
+    FFMPEG_PATH = _ffmpeg_env or shutil.which("ffmpeg")
     opts = {
-        "FFMPEG_LOCATION": FFMPEG_PATH,
+        **({"ffmpeg_location": FFMPEG_PATH} if FFMPEG_PATH else {}),
         "outtmpl": f"{target_dir}/%(title)s_%(id)s.%(ext)s",
         "cookiefile": str(YT_COOKIES_PATH) if YT_COOKIES_PATH.exists() else None,
         "writesubtitles": True,
@@ -120,7 +121,10 @@ def check_local_files(target_dir: str, task: models.Task):
 
 
 def process_task(task: models.Task, db: Session):
-    print(f"\n>>> 开始处理任务 [{task.id}]: {task.url}")
+    logger.info(f"[{task.id}] 开始处理任务: {task.url}")
+
+    is_multi_part = False  # 分P视频标记，影响后续目录结构
+    task.progress = 0      # 重置进度，防止重试时残留旧值
 
     try:
         # 1. 预解析元数据 (使用 extract_flat 快速获取列表结构)
@@ -133,87 +137,126 @@ def process_task(task: models.Task, db: Session):
         with yt_dlp.YoutubeDL(ydl_meta_opts) as ydl: # type: ignore
             info = ydl.extract_info(task.url, download=False)
 
+            if info is None:
+                raise Exception("yt-dlp 未能提取视频信息（URL 无效、需要 Cookies 登录，或网络不通）")
+
             # === 核心逻辑：处理合集/播放列表/UP主主页 ===
-            # 如果发现 entries 字段且类型是 playlist，说明是一个合集
             if "entries" in info and info.get("_type") == "playlist":
                 entries = list(info["entries"])
-
                 raw_playlist_title = info.get("title", "未知合集")
-                safe_playlist_title=re.sub(r'[\\/:*?"<>|]', "_", raw_playlist_title).strip()
+                safe_playlist_title = re.sub(r'[\\/:*?"<>|]', "_", raw_playlist_title).strip() or "未知合集"
 
-                print(
-                    f"[{task.id}] 检测到合集/列表，[{safe_playlist_title}]，包含 {len(entries)} 个视频..."
-                )
+                # 判断是分P视频还是真正的列表（合集/UP主主页）
+                # 分P视频的特征：提交的是单个 BV 号链接，但 yt-dlp 展开出多个分P条目
+                main_bv_match = re.search(r'(BV\w+)', task.url)
+                main_bv_id = main_bv_match.group(1) if main_bv_match else None
 
-                for entry in entries:
-                    if not entry:
-                        continue
-                    # 获取该条目的具体 URL
-                    entry_url = entry.get("url") or entry.get("webpage_url")
-                    if not entry_url and entry.get("id"):
-                        entry_url = f"https://www.bilibili.com/video/{entry['id']}"
-
-                    if not entry_url:
-                        continue
-
-                    # 检查是否已存在（避免合集内视频重复添加）
-                    exists = (
-                        db.query(models.Task)
-                        .filter(models.Task.url == entry_url)
-                        .first()
+                if main_bv_id:
+                    # === 分P视频：作为整体下载，放入以"视频标题_BV号"命名的子目录 ===
+                    is_multi_part = True
+                    task.video_id = main_bv_id
+                    task.title = info.get("title", task.title or "Unknown Title")
+                    raw_uploader = info.get("uploader") or info.get("channel") or "未分类UP主"
+                    task.uploader = re.sub(r'[\\/:*?"<>|]', "_", raw_uploader).strip()
+                    db.commit()
+                    notify_server()
+                    logger.info(
+                        f"[{task.id}] 检测到分P视频 [{task.title}]，共 {len(entries)} P，整体下载至独立子目录。"
                     )
-                    if not exists:
-                        new_task = models.Task(
-                            url=entry_url,
-                            title=entry.get("title", "等待解析..."),
-                            uploader=info.get("uploader")
-                            or info.get("title")
-                            or "未分类",
-                            playlist_name=safe_playlist_title,
-                        )
-                        db.add(new_task)
+                else:
+                    # === 真正的列表：展开为独立子任务 ===
+                    logger.info(
+                        f"[{task.id}] 检测到合集/列表，[{safe_playlist_title}]，包含 {len(entries)} 个视频..."
+                    )
 
-                # 将原始的“合集任务”标记为已完成（已展开）
-                task.status = "completed"
-                task.title = f"[已展开合集] {info.get('title', '未知名称')}"
-                task.progress = 100
+                    # UP主空间主页（非具体合集页）的子任务不挂 playlist_name，
+                    # 避免多一层以频道名命名的无意义目录
+                    is_space_page = (
+                        'space.bilibili.com' in task.url
+                        and 'collectiondetail' not in task.url
+                        and 'seriesdetail' not in task.url
+                        and '/channel/' not in task.url
+                    )
+
+                    for entry in entries:
+                        if not entry:
+                            continue
+                        # 优先使用 webpage_url（完整地址），若不以 http 开头则用 BV 号补全
+                        entry_url = entry.get("webpage_url") or entry.get("url")
+                        if entry_url and not entry_url.startswith("http"):
+                            entry_url = f"https://www.bilibili.com/video/{entry_url}"
+                        if not entry_url and entry.get("id"):
+                            entry_url = f"https://www.bilibili.com/video/{entry['id']}"
+                        if not entry_url:
+                            continue
+
+                        exists = (
+                            db.query(models.Task)
+                            .filter(models.Task.url == entry_url)
+                            .first()
+                        )
+                        if not exists:
+                            new_task = models.Task(
+                                url=entry_url,
+                                title=entry.get("title", "等待解析..."),
+                                uploader=info.get("uploader") or info.get("title") or "未分类",
+                                playlist_name=None if is_space_page else safe_playlist_title,
+                            )
+                            db.add(new_task)
+
+                    task.status = "completed"
+                    task.title = f"[已展开合集] {info.get('title', '未知名称')}"
+                    task.progress = 100
+                    db.commit()
+                    notify_server()
+                    logger.info(f"[{task.id}] 合集已成功拆分为独立任务。")
+                    return
+
+            else:
+                # === 单视频 ===
+                task.video_id = info.get("id", str(int(time.time())))
+                task.title = info.get("title", "Unknown Title")
+                raw_uploader = info.get("uploader") or info.get("channel") or "未分类UP主"
+                task.uploader = re.sub(r'[\\/:*?"<>|]', "_", raw_uploader).strip()
                 db.commit()
                 notify_server()
-                print(f"[{task.id}] 合集已成功拆分为独立任务。")
-                return  # 结束当前合集任务的处理，转向下一个独立视频任务
-
-            # === 如果是单视频，继续原有逻辑 ===
-            task.video_id = info.get("id", str(int(time.time())))
-            task.title = info.get("title", "Unknown Title")
-
-            raw_uploader = info.get("uploader") or info.get("channel") or "未分类UP主"
-            task.uploader = re.sub(r'[\\/:*?"<>|]', "_", raw_uploader).strip()
-            db.commit()
-            notify_server()
 
     except Exception as e:
+        # 如果标题还是占位符，从 URL 中提取 BV 号作为可识别标题
+        if not task.title or task.title == "等待解析...":
+            bv_match = re.search(r'(BV\w+)', task.url)
+            task.title = bv_match.group(1) if bv_match else task.url
         task.status = "failed"
         task.error_msg = f"解析失败: {str(e)}"
         db.commit()
         notify_server()
         return
 
-    # 以Up主的名字为子目录进行下载，确保不同UP主的视频文件不会混淆在一起
+    # === 计算本地临时目录 ===
+    # 规则：
+    #   分P视频  → uploader / [playlist_name /] title_BVid /
+    #   合集视频 → uploader / playlist_name /
+    #   单视频   → uploader /
+    safe_video_title = re.sub(r'[\\/:*?"<>|]', "_", task.title).strip() or "未知视频"
 
-    if task.playlist_name:
-        # 合集视频放在 UP 主目录下的合集子目录里
+    if is_multi_part:
+        multi_part_subdir = f"{safe_video_title}_{task.video_id}"
+        if task.playlist_name:
+            target_dir = str(TEMP_DIR / task.uploader / task.playlist_name / multi_part_subdir)
+        else:
+            target_dir = str(TEMP_DIR / task.uploader / multi_part_subdir)
+    elif task.playlist_name:
         target_dir = str(TEMP_DIR / task.uploader / task.playlist_name)
-        os.makedirs(target_dir, exist_ok=True)
     else:
-        # 单视频直接放在 UP 主目录下
         target_dir = str(TEMP_DIR / task.uploader)
-        os.makedirs(target_dir, exist_ok=True)
+
+    os.makedirs(target_dir, exist_ok=True)
 
     task.status = "downloading"
     task.error_msg = None
     db.commit()
     notify_server()
-    logger.info(f"[{task.id}] 状态切换为: 下载中...")
+    logger.info(f"[{task.id}] 「{task.title}」开始下载，目标目录: {target_dir}")
 
     download_error = None
     try:
@@ -246,17 +289,17 @@ def process_task(task: models.Task, db: Session):
                 task.progress = 100
                 db.commit()
                 notify_server()
-                logger.info(f"[{task.id}] 当前文件下载完成 (100%)")
+                logger.info(f"[{task.id}] 「{task.title}」当前文件下载完成 (100%)")
 
         opts = get_yt_dlp_options(task, target_dir)
         opts["progress_hooks"] = [yt_dlp_hook]
 
         with yt_dlp.YoutubeDL(opts) as ydl: # type: ignore
             ydl.download([task.url])
-            logger.info(f"[{task.id}] 本地文件下载流程执行完毕。")
+            logger.info(f"[{task.id}] 「{task.title}」本地文件下载完毕。")
     except Exception as e:
         download_error = str(e)
-        logger.error(f"[{task.id}] 下载层级抛出异常: {download_error}")
+        logger.error(f"[{task.id}] 「{task.title}」下载异常: {download_error}")
 
     check_local_files(target_dir, task)
     db.commit()
@@ -266,15 +309,12 @@ def process_task(task: models.Task, db: Session):
         task.error_msg = download_error or "视频未下载"
         db.commit()
         notify_server()
-        logger.error(f"[{task.id}] 校验失败：未检测到有效视频文件，任务终止。")
+        logger.error(f"[{task.id}] 「{task.title}」校验失败：未检测到视频文件，任务终止。")
         return
 
     task.status = "uploading"
     db.commit()
     notify_server()
-    logger.info(
-        f"[{task.id}] 准备触发 Rclone，目标节点: [{RCLONE_REMOTE_NAME}/{task.uploader}]"
-    )
 
     try:
         rclone_setting = (
@@ -289,11 +329,16 @@ def process_task(task: models.Task, db: Session):
         with open(RCLONE_CONFIG_PATH, "w", encoding="utf-8") as f:
             f.write(rclone_setting.value)
 
-        if task.playlist_name:
+        if is_multi_part:
+            if task.playlist_name:
+                remote_path = f"{RCLONE_REMOTE_NAME}/{task.uploader}/{task.playlist_name}/{multi_part_subdir}"
+            else:
+                remote_path = f"{RCLONE_REMOTE_NAME}/{task.uploader}/{multi_part_subdir}"
+        elif task.playlist_name:
             remote_path = f"{RCLONE_REMOTE_NAME}/{task.uploader}/{task.playlist_name}"
         else:
             remote_path = f"{RCLONE_REMOTE_NAME}/{task.uploader}"
-        logger.info(f"[{task.id}] 正在执行搬运与销毁指令...")
+        logger.info(f"[{task.id}] 「{task.title}」开始搬运: {target_dir} → {remote_path}")
 
         result = subprocess.run(
             [
@@ -310,9 +355,9 @@ def process_task(task: models.Task, db: Session):
         )
 
         if result.returncode != 0:
-            raise Exception(result.stderr)
+            raise Exception(result.stderr or result.stdout or f"rclone 异常退出，退出码: {result.returncode}")
 
-        logger.info(f"[{task.id}] Rclone 搬运成功，本地残留已被即时清理。")
+        logger.info(f"[{task.id}] 「{task.title}」搬运成功 → {remote_path}")
 
         if task.video_downloaded:
             task.video_uploaded = True
@@ -328,16 +373,16 @@ def process_task(task: models.Task, db: Session):
         if download_error:
             task.status = "partial_completed"
             task.error_msg = f"视频上云, 但附件缺失: {download_error}"
-            logger.warning(f"[{task.id}] 任务部分完成（附件有缺失）。")
+            logger.warning(f"[{task.id}] 「{task.title}」部分完成（视频已上云，附件缺失）。")
         else:
             task.status = "completed"
             task.error_msg = None
-            logger.info(f"[{task.id}] 任务完美完成！生命周期闭环。")
+            logger.info(f"[{task.id}] 「{task.title}」全部完成。")
 
     except Exception as e:
         task.status = "failed"
         task.error_msg = f"Rclone失败: {str(e)}"
-        logger.error(f"[{task.id}] Rclone 搬运阶段崩溃: {str(e)}")
+        logger.error(f"[{task.id}] 「{task.title}」Rclone 搬运失败: {str(e)}")
 
     db.commit()
     notify_server()

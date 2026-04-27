@@ -15,6 +15,7 @@ const generateMockTasks = () => {
       url: "https://www.bilibili.com/video/BV1234567890",
       status: "completed",
       progress: 100,
+      playlist_name: "前端技术精选合集",
       createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     },
     {
@@ -23,6 +24,7 @@ const generateMockTasks = () => {
       url: "https://www.bilibili.com/video/BV9876543210",
       status: "downloading",
       progress: 65,
+      playlist_name: "前端技术精选合集",
       createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
     },
     {
@@ -31,6 +33,7 @@ const generateMockTasks = () => {
       url: "https://www.bilibili.com/video/BV5555555555",
       status: "pending",
       progress: 0,
+      playlist_name: null,
       createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
     },
     {
@@ -39,7 +42,8 @@ const generateMockTasks = () => {
       url: "https://www.bilibili.com/video/BV3333333333",
       status: "failed",
       progress: 20,
-      error: "Error: Network timeout after 30 seconds\n\nServer returned 503 Service Unavailable\nPlease try again later or check your network connection",
+      playlist_name: null,
+      error_msg: "Error: Network timeout after 30 seconds\n\nServer returned 503 Service Unavailable\nPlease try again later or check your network connection",
       createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
     },
     {
@@ -48,6 +52,7 @@ const generateMockTasks = () => {
       url: "https://www.bilibili.com/video/BV7777777777",
       status: "uploading",
       progress: 88,
+      playlist_name: null,
       createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
     },
     {
@@ -56,8 +61,18 @@ const generateMockTasks = () => {
       url: "https://www.bilibili.com/video/BV2222222222",
       status: "partial_completed",
       progress: 50,
-      error: "Warning: 第5段视频因地域限制无法访问，已跳过",
+      playlist_name: "架构专题",
+      error_msg: "Warning: 第5段视频因地域限制无法访问，已跳过",
       createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      id: 7,
+      title: "[已展开合集] 前端技术精选合集",
+      url: "https://space.bilibili.com/999999/channel/collectiondetail?sid=12345",
+      status: "completed",
+      progress: 100,
+      playlist_name: null,
+      createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
     },
   ];
   return mockTasks;
@@ -151,6 +166,7 @@ export const useTasks = (isAuthenticated, isActive) => {
   const rawtasks = tasks || [];
   const filteredTasks = rawtasks.filter((task) => {
     if (!task) return false;
+    if (task.title?.startsWith('[已展开合集]')) return false;
     return effectiveFilter.has(task.status);
   });
 

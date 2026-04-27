@@ -101,6 +101,12 @@ def create_task(task_in: schemas.TaskCreate, db: Session = Depends(get_db)):
     """添加新任务"""
     existing_task = db.query(models.Task).filter(models.Task.url == task_in.url).first()
     if existing_task:
+        # 若是已展开的合集/UP主索引任务（video_uploaded=False 说明从未真正上传视频），
+        # 重置为 pending，让 worker 重新展开以发现新增视频；已在 DB 中的子任务 URL 会被自动跳过
+        if existing_task.status == "completed" and not existing_task.video_uploaded:
+            existing_task.status = "pending"
+            existing_task.error_msg = None
+            db.commit()
         return existing_task
 
     new_task = models.Task(url=task_in.url)
